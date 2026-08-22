@@ -51,7 +51,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Domain\Models\Empleado.cs" />
+    <Compile Include="Domain\Models\Empresa.cs" />
     <Compile Include="Domain\Models\Fichada.cs" />
+    <Compile Include="Domain\Models\Huella.cs" />
+    <Compile Include="Domain\Models\Usuario.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
