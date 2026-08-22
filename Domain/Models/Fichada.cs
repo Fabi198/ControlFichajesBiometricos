@@ -5,7 +5,8 @@ using System.Text;
 
 namespace DevsFingerPrint.Domain.Models
 {
-    internal class Fichada
+    public class Fichada
     {
+
     }
 }
