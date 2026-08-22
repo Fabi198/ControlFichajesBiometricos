@@ -1,0 +1,8 @@
+## Ignorar carpetas de compilación y temporales de Visual Studio
+.vs/
+bin/
+obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
