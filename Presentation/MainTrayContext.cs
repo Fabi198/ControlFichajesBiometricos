@@ -6,6 +6,7 @@ using DevsFingerPrint.Infrastructure.Services;
 using DPUruNet;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -20,6 +21,10 @@ namespace DevsFingerPrint.Presentation
         private readonly IBiometricService biometricService;
         private readonly IFichadaRepository fichadaRepository;
         private List<Huella> huellasCargadas;
+
+        private readonly ApiClient apiClient;
+        private readonly System.Windows.Forms.Timer syncTimer;
+        private const int EMPRESA_ID = 1; // Reemplazar con el ID real de la empresa
 
         public MainTrayContext()
         {
@@ -50,6 +55,57 @@ namespace DevsFingerPrint.Presentation
             
             CargarHuellasLocales();
             biometricService.IniciarLectura();
+
+
+
+            apiClient = new ApiClient("https://localhost:7123"); //Reemplazar con la URL real de la API
+
+            syncTimer = new System.Windows.Forms.Timer();
+            syncTimer.Interval = 60 * 60 * 1000; // Cada 1 hora
+            syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
+            syncTimer.Start();
+
+            // Sincronización inicial al iniciar la aplicación
+            SincronizarConServidorAsync();
+
+
+        }
+
+        private void SincronizarConServidorAsync()
+        {
+            
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                   
+                    var catalogo = apiClient.ObtenerCatalogo(EMPRESA_ID);
+                    if (catalogo != null && catalogo.Empleados != null && catalogo.Huellas != null)
+                    {
+                        fichadaRepository.SincronizarCatalogoEmpresa(catalogo.Empleados, catalogo.Huellas);
+                        CargarHuellasLocales(); // Actualiza la caché en memoria para el BiometricService
+                    }
+
+
+                    var pendientes = fichadaRepository.ObtenerFichadasPendientes();
+                    var listaPendientes = new List<Fichada>(pendientes);
+
+                    if (listaPendientes.Count > 0)
+                    {
+                        bool enviadas = apiClient.EnviarFichadas(listaPendientes);
+                        if (enviadas)
+                        {
+                            var ids = listaPendientes.ConvertAll(f => f.Id);
+                            fichadaRepository.MarcarComoSincronizadas(ids);
+                            MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error durante sincronización: {ex.Message}");
+                }
+            });
         }
 
         private void CargarHuellasLocales()
