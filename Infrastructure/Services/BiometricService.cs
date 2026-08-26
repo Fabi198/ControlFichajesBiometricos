@@ -36,6 +36,11 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         // Control del lector USB
 
+        public DPUruNet.Reader ObtenerLectorActual()
+        {
+            return lector; // o el nombre de la variable Reader en tu clase
+        }
+
         public bool IniciarLectura()
         {
             try

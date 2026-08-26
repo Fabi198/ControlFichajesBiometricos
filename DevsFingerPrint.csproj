@@ -76,6 +76,9 @@
     <Compile Include="Infrastructure\Repositories\FichadaRepository.cs" />
     <Compile Include="Infrastructure\Services\ApiClient.cs" />
     <Compile Include="Infrastructure\Services\BiometricService.cs" />
+    <Compile Include="Presentation\EnrolarHuellaForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Presentation\MainTrayContext.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

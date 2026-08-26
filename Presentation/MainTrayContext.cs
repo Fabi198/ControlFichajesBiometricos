@@ -10,6 +10,7 @@ using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace DevsFingerPrint.Presentation
@@ -34,6 +35,8 @@ namespace DevsFingerPrint.Presentation
             biometricService = new BiometricService();
 
             var contextMenu = new ContextMenuStrip();
+            contextMenu.Items.Add("Enrolar nuevo empleado", null, EnrolarNuevoEmpleado);
+            contextMenu.Items.Add("-");
             contextMenu.Items.Add("Estado del Lector", null, MostrarEstadoLector);
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Salir", null, SalirAplicacion);
@@ -165,6 +168,50 @@ namespace DevsFingerPrint.Presentation
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
             MessageBox.Show($"Huellas en caché: {huellasCargadas.Count}\nBase de datos local: Lista", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void EnrolarNuevoEmpleado(object sender, EventArgs e)
+        {
+            
+            biometricService.DetenerLectura();
+
+            Reader lectorFisico = biometricService.ObtenerLectorActual(); // Retorna la instancia de DPUruNet.Reader
+
+            /*
+            if (lectorFisico == null)
+            {
+                MessageBox.Show("No hay ningún lector U.are.U 4500 conectado.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                biometricService.IniciarLectura();
+                return;
+            }
+            */
+
+            // 2. Abrir el formulario modal de captura
+            using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, 1))
+            {
+                if (frmEnrolar.ShowDialog() == DialogResult.OK && frmEnrolar.HuellaCapturada != null)
+                {
+                    // A. Guardar localmente en SQLite
+                    //fichadaRepository.GuardarFichadaLocal(frmEnrolar.HuellaCapturada);
+
+                    // B. Intentar subir la huella a la API de tu compañero
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        // TODO: Manejar la respuesta de la API y mostrar notificación según corresponda
+                        /*
+                        bool subida = apiClient.GuardarHuellaRemota(frmEnrolar.HuellaCapturada);
+                        if (subida)
+                        {
+                            MostrarNotificacion("Enrolamiento", "La huella fue subida correctamente al servidor central.", ToolTipIcon.Info);
+                        }
+                        */
+                    });
+
+                    CargarHuellasLocales();
+                }
+            }
+
+            biometricService.IniciarLectura();
         }
 
         private void SalirAplicacion(object sender, EventArgs e)

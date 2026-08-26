@@ -16,6 +16,7 @@ namespace DevsFingerPrint.Domain.Interfaces
         event Action OnHuellaNoReconocida;
         event Action<string> OnEstadoCambiado;
         event Action<int> OnProgresoEnrolamiento;
+        DPUruNet.Reader ObtenerLectorActual();
 
         // Control del lector USB
         bool IniciarLectura();
