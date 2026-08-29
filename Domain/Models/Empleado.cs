@@ -19,5 +19,6 @@ namespace DevsFingerPrint.Domain.Models
         public string Sucursal { get; set; }
         public string Horario { get; set; }
         public bool Activo { get; set; } = true;
+        public string NombreCompleto => $"{Apellido}, {Nombre} (Legajo: {Legajo})";
     }
 }

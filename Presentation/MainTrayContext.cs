@@ -22,23 +22,33 @@ namespace DevsFingerPrint.Presentation
         private readonly IBiometricService biometricService;
         private readonly IFichadaRepository fichadaRepository;
         private List<Huella> huellasCargadas;
+        private ApiClient _apiClient;
 
-        private readonly ApiClient apiClient;
         private readonly System.Windows.Forms.Timer syncTimer;
         private const int EMPRESA_ID = 1; // Reemplazar con el ID real de la empresa
 
-        public MainTrayContext()
+        public MainTrayContext(ApiClient apiClient)
         {
             LocalDatabase.Inicializar();
 
             fichadaRepository = new FichadaRepository();
             biometricService = new BiometricService();
+            _apiClient = apiClient;
+
+
+            //METODO PARA SIMULAR
+            var itemSimularFichada = new ToolStripMenuItem("Simular Fichada de Prueba", null, SimularFichada_Click);
+            
 
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Enrolar nuevo empleado", null, EnrolarNuevoEmpleado);
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Estado del Lector", null, MostrarEstadoLector);
             contextMenu.Items.Add("-");
+            //METODO PARA SIMULAR
+            contextMenu.Items.Add(itemSimularFichada);
+            contextMenu.Items.Add("-");
+            //HASTA ACA
             contextMenu.Items.Add("Salir", null, SalirAplicacion);
 
             notifyIcon = new NotifyIcon
@@ -60,16 +70,19 @@ namespace DevsFingerPrint.Presentation
             biometricService.IniciarLectura();
 
 
-
-            apiClient = new ApiClient("https://localhost:7123"); //Reemplazar con la URL real de la API
-
             syncTimer = new System.Windows.Forms.Timer();
-            syncTimer.Interval = 60 * 60 * 1000; // Cada 1 hora
+            //syncTimer.Interval = 60 * 60 * 1000; // Cada 1 hora
+            syncTimer.Interval = 30000; // Cada 30 segundos
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
             syncTimer.Start();
 
             // Sincronización inicial al iniciar la aplicación
             SincronizarConServidorAsync();
+
+
+
+
+            
 
 
         }
@@ -82,7 +95,7 @@ namespace DevsFingerPrint.Presentation
                 try
                 {
                    
-                    var catalogo = apiClient.ObtenerCatalogo(EMPRESA_ID);
+                    var catalogo = _apiClient.ObtenerCatalogo(EMPRESA_ID);
                     if (catalogo != null && catalogo.Empleados != null && catalogo.Huellas != null)
                     {
                         fichadaRepository.SincronizarCatalogoEmpresa(catalogo.Empleados, catalogo.Huellas);
@@ -95,7 +108,7 @@ namespace DevsFingerPrint.Presentation
 
                     if (listaPendientes.Count > 0)
                     {
-                        bool enviadas = apiClient.EnviarFichadas(listaPendientes);
+                        bool enviadas = _apiClient.EnviarFichadas(listaPendientes);
                         if (enviadas)
                         {
                             var ids = listaPendientes.ConvertAll(f => f.Id);
@@ -187,27 +200,40 @@ namespace DevsFingerPrint.Presentation
             */
 
             // 2. Abrir el formulario modal de captura
-            using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, 1))
+            // 1. Obtener los empleados (de la API o SQLite) para cargar el desplegable
+            List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
+
+            using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, listaEmpleados))
             {
                 if (frmEnrolar.ShowDialog() == DialogResult.OK && frmEnrolar.HuellaCapturada != null)
                 {
-                    // A. Guardar localmente en SQLite
-                    //fichadaRepository.GuardarFichadaLocal(frmEnrolar.HuellaCapturada);
+                    System.Diagnostics.Debug.WriteLine($"Entro por aca. Data: {frmEnrolar.HuellaCapturada.TemplateBiometrico}");
 
-                    // B. Intentar subir la huella a la API de tu compañero
+                    // A. Guardar localmente en SQLite
+                    Huella nuevaHuella = frmEnrolar.HuellaCapturada;
+                    int indiceDedo = frmEnrolar.IndiceDedoSeleccionado;
+
+                    // B. Intentar subir la huella a la API en segundo plano
                     ThreadPool.QueueUserWorkItem(_ =>
                     {
-                        // TODO: Manejar la respuesta de la API y mostrar notificación según corresponda
-                        /*
-                        bool subida = apiClient.GuardarHuellaRemota(frmEnrolar.HuellaCapturada);
+                        // 🔑 Se pasa la huella y el dedo seleccionado
+                        bool subida = _apiClient.GuardarHuella(nuevaHuella, indiceDedo);
+
                         if (subida)
                         {
                             MostrarNotificacion("Enrolamiento", "La huella fue subida correctamente al servidor central.", ToolTipIcon.Info);
                         }
-                        */
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("Algo esta saliendo mal al subir la huella a la API.");
+                        }
                     });
 
                     CargarHuellasLocales();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("Se canceló el enrolamiento o no se capturó la huella.");
                 }
             }
 
@@ -220,6 +246,31 @@ namespace DevsFingerPrint.Presentation
             notifyIcon.Visible = false;
             Application.Exit();
         }
+
+
+
+        // METODO FALSO PARA SIMULAR
+
+        private void SimularFichada_Click(object sender, EventArgs e)
+        {
+            string tipoRegistro = "Entrada";
+
+            var nuevaFichada = new Fichada
+            {
+                EmpleadoId = 1,
+                FechaHora = DateTime.Now,
+                TipoRegistro = tipoRegistro,
+                Metodo = "BiometricoFAKE",
+                Sincronizado = false
+            };
+
+            fichadaRepository.GuardarFichadaLocal(nuevaFichada);
+
+            MostrarNotificacion("Fichada Registrada", $"Empleado ID: {1} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
+        }
+
+
+
 
     }
 }
