@@ -165,5 +165,87 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             throw new NotImplementedException();
         }
 
+        // Obtiene la última fichada registrada localmente para un empleado específico
+        public Fichada ObtenerUltimaFichada(int empleadoId)
+        {
+            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            {
+                conexion.Open();
+                string query = @"SELECT Id, EmpleadoId, FechaHora, TipoRegistro, Metodo, Sincronizado 
+                                 FROM Fichada
+                                 WHERE EmpleadoId = @EmpleadoId 
+                                 ORDER BY FechaHora DESC 
+                                 LIMIT 1;";
+
+                using (var command = new SQLiteCommand(query, conexion))
+                {
+                    command.Parameters.AddWithValue("@EmpleadoId", empleadoId);
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return new Fichada
+                            {
+                                Id = reader.GetInt32(0),
+                                EmpleadoId = reader.GetInt32(1),
+                                FechaHora = Convert.ToDateTime(reader.GetString(2)), // O GetDateTime según el tipo de columna en SQLite
+                                TipoRegistro = reader.GetString(3),
+                                Metodo = reader.GetString(4),
+                                Sincronizado = reader.GetInt32(5) == 1
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        // Obtiene el horario laboral teórico del empleado (configurado en base local)
+        public HorarioLaboral ObtenerHorarioLaboral(int empleadoId)
+        {
+            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            {
+                conexion.Open();
+                // Ajustá el nombre de la columna y tabla según tu esquema actual (ej: Empleados, Horario)
+                string query = @"SELECT Horario FROM Empleado WHERE Id = @EmpleadoId;";
+
+                using (var command = new SQLiteCommand(query, conexion))
+                {
+                    command.Parameters.AddWithValue("@EmpleadoId", empleadoId);
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.Read() && !reader.IsDBNull(0))
+                        {
+                            string horarioTexto = reader.GetString(0); // Ej: "09:00 a 18:00"
+
+                            // Separamos el string usando " a " como delimitador
+                            string[] partes = horarioTexto.Split(new[] { " a " }, StringSplitOptions.RemoveEmptyEntries);
+
+                            if (partes.Length == 2)
+                            {
+                                return new HorarioLaboral
+                                {
+                                    HoraEntrada = TimeSpan.Parse(partes[0].Trim()),
+                                    HoraSalida = TimeSpan.Parse(partes[1].Trim())
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
     }
 }
+
+
+// Modelo complementario si no lo tienes definido
+public class HorarioLaboral
+{
+    public TimeSpan HoraEntrada { get; set; }
+    public TimeSpan HoraSalida { get; set; }
+}
+

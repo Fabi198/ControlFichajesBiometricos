@@ -21,5 +21,11 @@ namespace DevsFingerPrint.Domain.Interfaces
         // Sync remoto con el backend
         bool EnviarLoteFichadas(IEnumerable<Fichada> fichadas);
 
+        // Obtiene la ultima fichada local de un empleado
+        Fichada ObtenerUltimaFichada(int empleadoId);
+
+        // Obtiene el horario de trabajo de un empleado
+        HorarioLaboral ObtenerHorarioLaboral(int empleadoId);
+
     }
 }

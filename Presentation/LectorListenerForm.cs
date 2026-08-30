@@ -12,11 +12,12 @@ namespace DevsFingerPrint.Presentation
             this.ShowInTaskbar = false;
             this.WindowState = FormWindowState.Normal;
             this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
-            this.Opacity = 0;
+            this.Opacity = 1;
             this.Visible = true;
             this.ShowIcon = true;
-            this.StartPosition = FormStartPosition.Manual;
-            this.Location = new System.Drawing.Point(-2000, -2000); // Fuera de la pantalla por seguridad
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.Location = new System.Drawing.Point(0, 0);
+            //this.Location = new System.Drawing.Point(-2000, -2000); // Fuera de la pantalla por seguridad
 
             System.Diagnostics.Debug.WriteLine("[LOG LectorForm] Instancia creada y VISIBLE para pruebas.");
         }

@@ -198,7 +198,23 @@ namespace DevsFingerPrint.Presentation
         {
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric SUCCESS] ¡Match encontrado! Empleado ID identificado: {empleadoId}");
 
-            string tipoRegistro = "Entrada";
+            // 1. Control de Cooldown (Anti-doble fichada de 5 minutos)
+            var ultimaFichadaUsuario = fichadaRepository.ObtenerUltimaFichada(empleadoId);
+            if (ultimaFichadaUsuario != null)
+            {
+                double minutosTranscurridos = (DateTime.Now - ultimaFichadaUsuario.FechaHora).TotalMinutes;
+                if (minutosTranscurridos < 5)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada ignorada. Pasaron solo {minutosTranscurridos:N1} minutos desde la última.");
+                    Console.Beep(600, 100);
+                    Console.Beep(600, 100);
+                    MostrarNotificacion("Fichada Duplicada", "Ya registró su asistencia hace pocos minutos.", ToolTipIcon.Warning);
+                    return;
+                }
+            }
+
+            // 2. Determinar si es Entrada o Salida por horario o alternancia
+            string tipoRegistro = DeterminarTipoRegistro(empleadoId, ultimaFichadaUsuario);
 
             var nuevaFichada = new Fichada
             {
@@ -210,10 +226,50 @@ namespace DevsFingerPrint.Presentation
             };
 
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
-            System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada guardada en DB local para EmpleadoId: {empleadoId}");
+            System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada guardada en DB local para EmpleadoId: {empleadoId} como {tipoRegistro}");
 
             Console.Beep(1000, 150);
             MostrarNotificacion("Fichada Registrada", $"Empleado ID: {empleadoId} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
+        }
+
+        private string DeterminarTipoRegistro(int empleadoId, Fichada ultimaFichada)
+        {
+            // Obtener los horarios teóricos del empleado desde la base de datos local
+            var horario = fichadaRepository.ObtenerHorarioLaboral(empleadoId);
+
+            if (horario != null)
+            {
+
+                // Para testear, puedes reemplazar temporalmente DateTime.Now.TimeOfDay por una hora simulada:
+                // TimeSpan horaActual = new TimeSpan(9, 5, 0);   // Simula las 09:05 (Debería marcar Entrada si su turno es a las 09:00)
+                // TimeSpan horaActual = new TimeSpan(18, 10, 0); // Simula las 18:10 (Debería marcar Salida si su turno termina a las 18:00)
+                // TimeSpan horaActual = new TimeSpan(13, 0, 0);  // Simula las 13:00 (Fuera de rango, debería alternar con la última)
+
+
+
+
+
+
+                TimeSpan horaActual = DateTime.Now.TimeOfDay;
+
+                // Ventana de tolerancia (ej: 2 horas antes o después del horario estipulado)
+                bool cercaEntrada = Math.Abs((horaActual - horario.HoraEntrada).TotalMinutes) <= 120;
+
+                double minutosDesdeSalida = (horaActual - horario.HoraSalida).TotalMinutes;
+                bool cercaSalida = minutosDesdeSalida >= -15 && minutosDesdeSalida <= 180;
+
+                if (cercaEntrada && !cercaSalida) return "Entrada";
+                if (cercaSalida && !cercaEntrada) return "Salida";
+            }
+
+            // Fallback: Si no coincide claramente con ningún horario o está fuera de rango, alternar el último
+            if (ultimaFichada != null)
+            {
+                return ultimaFichada.TipoRegistro == "Entrada" ? "Salida" : "Entrada";
+            }
+
+            // Por defecto si es su primer registro histórico del día
+            return "Entrada";
         }
 
         private void OnHuellaNoReconocida()
