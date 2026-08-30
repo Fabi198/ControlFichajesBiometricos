@@ -7,13 +7,16 @@ namespace DevsFingerPrint.Presentation
     {
         public LectorListenerForm()
         {
-            // Forzamos visibilidad total para pruebas de hardware
-            this.ShowInTaskbar = true;
+            
+            // Configuramos el formulario para que sea totalmente invisible y no aparezca en la barra de tareas
+            this.ShowInTaskbar = false;
             this.WindowState = FormWindowState.Normal;
+            this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
+            this.Opacity = 0;
             this.Visible = true;
-            this.Text = "DevsFingerPrint - Panel de Prueba Lector";
-            this.Width = 400;
-            this.Height = 200;
+            this.ShowIcon = true;
+            this.StartPosition = FormStartPosition.Manual;
+            this.Location = new System.Drawing.Point(-2000, -2000); // Fuera de la pantalla por seguridad
 
             System.Diagnostics.Debug.WriteLine("[LOG LectorForm] Instancia creada y VISIBLE para pruebas.");
         }

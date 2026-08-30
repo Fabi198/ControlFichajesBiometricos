@@ -212,6 +212,7 @@ namespace DevsFingerPrint.Presentation
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada guardada en DB local para EmpleadoId: {empleadoId}");
 
+            Console.Beep(1000, 150);
             MostrarNotificacion("Fichada Registrada", $"Empleado ID: {empleadoId} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
         }
 
@@ -229,6 +230,12 @@ namespace DevsFingerPrint.Presentation
             if (notifyIcon != null)
             {
                 notifyIcon.Text = textoCompleto.Length > 63 ? textoCompleto.Substring(0, 60) + "..." : textoCompleto;
+
+                // Dispara la notificación visual flotante solo cuando el lector esté listo
+                if (mensaje.Contains("Lector listo") || mensaje.Contains("listo"))
+                {
+                    MostrarNotificacion("Sensor Activo", "El lector U.are.U está listo. Ya se puede fichar.", ToolTipIcon.Info);
+                }
             }
         }
 
@@ -338,6 +345,7 @@ namespace DevsFingerPrint.Presentation
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
             System.Diagnostics.Debug.WriteLine($"[LOG Simulación] Fichada simulada guardada para EmpleadoId: 1");
 
+            Console.Beep(1000, 150);
             MostrarNotificacion("Fichada Registrada", $"Empleado ID: 1 - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
         }
     }

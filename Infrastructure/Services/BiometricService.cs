@@ -4,6 +4,7 @@ using DPUruNet;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Windows.Forms;
 
 namespace DevsFingerPrint.Infrastructure.Services
 {
@@ -14,6 +15,7 @@ namespace DevsFingerPrint.Infrastructure.Services
         private bool esEnrolamiento;
         private List<Fmd> fmdsEnrolamiento;
         private const int CAPTURAS_REQUERIDAS_ENROLAMIENTO = 4;
+        public bool listo = false;
 
         // Controla si el servicio debe seguir re-armando la captura después de cada evento.
         // Sin esto, CaptureAsync solo dispara UNA vez y el lector queda "muerto".
