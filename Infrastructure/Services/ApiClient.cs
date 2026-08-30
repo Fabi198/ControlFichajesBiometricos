@@ -1,10 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Net;
-using System.Text;
+﻿using DevsFingerPrint.Domain.DTO;
 using DevsFingerPrint.Domain.Models;
 using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
 
 namespace DevsFingerPrint.Infrastructure.Services
 {
@@ -92,31 +94,33 @@ namespace DevsFingerPrint.Infrastructure.Services
             return false;
         }
 
-        public CatalogoResponse ObtenerCatalogo(int empresaId)
+        public List<Huella> ObtenerHuellas(int empresaId)
         {
-            var respuesta = new CatalogoResponse();
+            if (string.IsNullOrEmpty(_authToken))
+            {
+                if (!IntentarRenovarSesion()) return null; // Devolver NULL en error para proteger DB local
+            }
 
             try
             {
-                string jsonEmp = RealizarPeticion("GET", $"{_baseUrl}/api/empleados/empresa/{empresaId}", null);
-                string jsonHue = RealizarPeticion("GET", $"{_baseUrl}/api/huellas/empresa/{empresaId}", null);
+                // Ajustá esta URL a la ruta exacta de tu HuellasController (ej: /api/huellas/empresa/{empresaId})
+                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/huellas/empresa/{empresaId}", null, _authToken);
 
-                if (!string.IsNullOrEmpty(jsonEmp))
+                if (!string.IsNullOrEmpty(jsonResponse))
                 {
-                    respuesta.Empleados = JsonConvert.DeserializeObject<List<Empleado>>(jsonEmp) ?? new List<Empleado>();
-                }
-
-                if (!string.IsNullOrEmpty(jsonHue))
-                {
-                    respuesta.Huellas = JsonConvert.DeserializeObject<List<Huella>>(jsonHue) ?? new List<Huella>();
+                    return JsonConvert.DeserializeObject<List<Huella>>(jsonResponse) ?? new List<Huella>();
                 }
             }
-            catch (Exception ex)
+            catch (WebException ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error al obtener catálogo desde la API: {ex.Message}");
+                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    if (IntentarRenovarSesion()) return ObtenerHuellas(empresaId);
+                }
+                System.Diagnostics.Debug.WriteLine($"Error al obtener huellas: {ex.Message}");
             }
 
-            return respuesta;
+            return null; // Retornar NULL ante fallas para no vaciar la DB local
         }
 
         public List<Empleado> ObtenerEmpleados()
@@ -186,52 +190,62 @@ namespace DevsFingerPrint.Infrastructure.Services
             return new List<Empleado>();
         }
 
-        public bool EnviarFichadas(IEnumerable<Fichada> fichadas)
+        public bool EnviarFichadas(List<Fichada> fichadas)
         {
-            // 1. Validar que tengamos un token JWT cargado
+            if (fichadas == null || fichadas.Count == 0) return true;
+
             if (string.IsNullOrEmpty(_authToken))
             {
-                System.Diagnostics.Debug.WriteLine("[API Error] No hay token de sesión. Inicie sesión primero.");
-                return false;
-            }
-
-            if (fichadas == null)
-            {
-                return true; // Nada que enviar
+                if (!IntentarRenovarSesion()) return false;
             }
 
             try
             {
-                string jsonBody = JsonConvert.SerializeObject(fichadas);
+                // Mapear de Fichada (Local DB) a FichadaRequestDto (API)
+                var listaDtos = fichadas.Select(f => new
+                {
+                    empleadoId = f.EmpleadoId,
+                    fechaHora = f.FechaHora.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    tipoRegistro = f.TipoRegistro, // Asegurar que sea "Entrada" o "Salida"
+                    metodo = f.Metodo == "BiometricoFAKE" ? "Biometrico" : f.Metodo // Reemplazar valores de prueba no válidos
+                }).ToList();
 
-                // 2. Ejecutar petición POST enviando el token JWT en el parámetro de cabecera
-                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
+                string jsonBody = JsonConvert.SerializeObject(listaDtos);
 
-                return response != null;
+                // Llamada al endpoint POST /api/fichadas/bulk (o /api/fichadas)
+                string jsonResponse = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
+
+                return true;
             }
             catch (WebException ex)
             {
-                // 3. Manejo de renovación automática si expira el token (401 Unauthorized)
-                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                if (ex.Response is HttpWebResponse errorResponse)
                 {
-                    System.Diagnostics.Debug.WriteLine("[API] Token expirado al enviar fichadas. Intentando renovar sesión...");
-
-                    string[] creds = CredentialStorage.CargarCredenciales();
-                    if (creds != null && creds.Length == 2 && IniciarSesion(creds[0], creds[1]))
+                    using (var stream = errorResponse.GetResponseStream())
+                    using (var reader = new System.IO.StreamReader(stream))
                     {
-                        // Reintentar el envío con el nuevo token obtenido
+                        System.Diagnostics.Debug.WriteLine($"[API Error {(int)errorResponse.StatusCode}] {reader.ReadToEnd()}");
+                    }
+
+                    if (errorResponse.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                    {
                         return EnviarFichadas(fichadas);
                     }
                 }
+            }
 
-                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
-                return false;
-            }
-            catch (Exception ex)
+            return false;
+        }
+
+        private bool IntentarRenovarSesion()
+        {
+            string[] creds = CredentialStorage.CargarCredenciales();
+            if (creds != null && creds.Length == 2)
             {
-                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
-                return false;
+                return IniciarSesion(creds[0], creds[1]);
             }
+            System.Diagnostics.Debug.WriteLine("[API Error] No se encontraron credenciales guardadas para auto-login.");
+            return false;
         }
 
         private string RealizarPeticion(string metodo, string url, string jsonBody = null, string token = null)

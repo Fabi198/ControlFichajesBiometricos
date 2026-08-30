@@ -9,7 +9,8 @@ namespace DevsFingerPrint.Domain.Models
     {
         public int Id { get; set; }
         public int EmpleadoId { get; set; }
-        public string NombreDedo { get; set; }
+        public int IndiceDedo { get; set; }
         public string TemplateBiometrico { get; set; } // Representación en Base64
+        public DateTime FechaRegistro { get; set; } = DateTime.Now;
     }
 }

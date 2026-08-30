@@ -44,8 +44,9 @@ namespace DevsFingerPrint.Infrastructure.Data
                     CREATE TABLE IF NOT EXISTS Huella (
                         Id INTEGER PRIMARY KEY,
                         EmpleadoId INTEGER NOT NULL,
-                        NombreDedo TEXT NOT NULL,
+                        IndiceDedo INTEGER NOT NULL DEFAULT 0,
                         TemplateBiometrico TEXT NOT NULL,
+                        FechaRegistro TEXT NOT NULL,
                         FOREIGN KEY(EmpleadoId) REFERENCES Empleado(Id)
                     );
 

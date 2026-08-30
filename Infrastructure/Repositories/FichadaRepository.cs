@@ -40,7 +40,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
             {
                 conexion.Open();
-                string sql = "SELECT Id, EmpleadoId, NombreDedo, TemplateBiometrico FROM Huella";
+                string sql = "SELECT Id, EmpleadoId, IndiceDedo, TemplateBiometrico, FechaRegistro FROM Huella";
 
                 using (var cmd = new SQLiteCommand(sql, conexion))
                 using (var reader = cmd.ExecuteReader())
@@ -51,8 +51,9 @@ namespace DevsFingerPrint.Infrastructure.Repositories
                         {
                             Id = Convert.ToInt32(reader["Id"]),
                             EmpleadoId = Convert.ToInt32(reader["EmpleadoId"]),
-                            NombreDedo = reader["NombreDedo"].ToString(),
-                            TemplateBiometrico = reader["TemplateBiometrico"].ToString()
+                            IndiceDedo = Convert.ToInt32(reader["IndiceDedo"]),
+                            TemplateBiometrico = reader["TemplateBiometrico"].ToString(),
+                            FechaRegistro = DateTime.Parse(reader["FechaRegistro"].ToString())
                         });
                     }
                 }
@@ -143,12 +144,13 @@ namespace DevsFingerPrint.Infrastructure.Repositories
 
                     foreach (var h in huellas)
                     {
-                        var cmd = new SQLiteCommand(@"INSERT INTO Huella (Id, EmpleadoId, NombreDedo, TemplateBiometrico) 
-                                                      VALUES (@Id, @EmpleadoId, @NombreDedo, @TemplateBiometrico)", conexion, transaccion);
+                        var cmd = new SQLiteCommand(@"INSERT INTO Huella (Id, EmpleadoId, IndiceDedo, TemplateBiometrico, FechaRegistro) 
+                                                      VALUES (@Id, @EmpleadoId, @IndiceDedo, @TemplateBiometrico, @FechaRegistro)", conexion, transaccion);
                         cmd.Parameters.AddWithValue("@Id", h.Id);
                         cmd.Parameters.AddWithValue("@EmpleadoId", h.EmpleadoId);
-                        cmd.Parameters.AddWithValue("@NombreDedo", h.NombreDedo);
+                        cmd.Parameters.AddWithValue("@IndiceDedo", h.IndiceDedo);
                         cmd.Parameters.AddWithValue("@TemplateBiometrico", h.TemplateBiometrico);
+                        cmd.Parameters.AddWithValue("@FechaRegistro", h.FechaRegistro);
                         cmd.ExecuteNonQuery();
                     }
 
