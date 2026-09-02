@@ -81,7 +81,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 Debug.WriteLine($"[LOG Biometric] Lector seleccionado: {lector.Description.SerialNumber} - {lector.Description.Name}");
 
                 // 1. Abrir lector en modo compartido/cooperativo
-                Constants.ResultCode resultado = lector.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                Constants.ResultCode resultado = lector.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);
                 if (resultado != Constants.ResultCode.DP_SUCCESS)
                 {
                     Debug.WriteLine($"[LOG Biometric ERROR] Falló lector.Open(). Código de resultado: {resultado}");
@@ -169,6 +169,15 @@ namespace DevsFingerPrint.Infrastructure.Services
                     return true;
                 }
 
+                if (resultadoStart == Constants.ResultCode.DP_DEVICE_FAILURE)
+                {
+                    Debug.WriteLine("[LOG Biometric ERROR] ¡El lector fue desconectado!");
+                    OnEstadoCambiado?.Invoke("Se ha desconectado el lector biométrico. Cerrando sistema...");
+
+                    System.Threading.Thread.Sleep(1500);
+                    Environment.Exit(0);
+                }
+
                 // Fallback a formato ISO si el lector rechaza ANSI
                 Debug.WriteLine($"[LOG Biometric ERROR] Falló CaptureAsync ANSI ({resultadoStart}). Intentando ISO...");
                 resultadoStart = lector.CaptureAsync(
@@ -242,6 +251,16 @@ namespace DevsFingerPrint.Infrastructure.Services
                 {
                     Debug.WriteLine("[LOG Biometric ERROR] CaptureResult es NULO.");
                     OnEstadoCambiado?.Invoke("Error durante la captura de la huella.");
+                    return;
+                }
+
+                if (captureResult.ResultCode == Constants.ResultCode.DP_DEVICE_FAILURE || captureResult.ResultCode == Constants.ResultCode.DP_INVALID_DEVICE)
+                {
+                    Debug.WriteLine("[LOG Biometric ERROR FATAL] El lector falló o se desconectó. Cerrando app...");
+                    OnEstadoCambiado?.Invoke("Lector desconectado o con fallo crítico. Cerrando aplicación...");
+
+                    System.Threading.Thread.Sleep(1000);
+                    Environment.Exit(0); // Cierra todo el proceso de forma limpia
                     return;
                 }
 
@@ -527,5 +546,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 return false;
             }
         }
+
+
     }
 }

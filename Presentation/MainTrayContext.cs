@@ -303,7 +303,8 @@ namespace DevsFingerPrint.Presentation
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
             int cantidad = huellasCargadas != null ? huellasCargadas.Count : 0;
-            MessageBox.Show($"Huellas en caché: {cantidad}\nBase de datos local: Listo", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            
+            MessageBox.Show($"Huellas en caché: {cantidad}\nBase de datos local: Listo\nSerial del lector: {biometricService.ObtenerLectorActual().Description.SerialNumber}", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void EnrolarNuevoEmpleado(object sender, EventArgs e)

@@ -7,19 +7,23 @@ namespace DevsFingerPrint.Presentation
     {
         public LectorListenerForm()
         {
-            
-            // Configuramos el formulario para que sea totalmente invisible y no aparezca en la barra de tareas
             this.ShowInTaskbar = false;
             this.WindowState = FormWindowState.Normal;
-            this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
-            this.Opacity = 1;
-            this.Visible = true;
-            this.ShowIcon = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.Location = new System.Drawing.Point(0, 0);
-            //this.Location = new System.Drawing.Point(-2000, -2000); // Fuera de la pantalla por seguridad
+            this.FormBorderStyle = FormBorderStyle.None;
 
-            System.Diagnostics.Debug.WriteLine("[LOG LectorForm] Instancia creada y VISIBLE para pruebas.");
+            // Mantiene la ventana siempre en primer plano (reemplaza al Always on Top de PowerToys)
+            this.TopMost = true;
+
+            this.Opacity = 0;
+            this.Visible = true;
+            this.ShowIcon = false;
+            this.StartPosition = FormStartPosition.Manual;
+            this.Location = new System.Drawing.Point(0, 0); // O tu posición deseada
+
+            // Tamaño mínimo absoluto (1x1 píxel sin bordes)
+            this.ClientSize = new System.Drawing.Size(1, 1);
+
+            System.Diagnostics.Debug.WriteLine("[LOG LectorForm] Ventana en primer plano y tamaño mínimo configurados.");
         }
 
         protected override void OnHandleCreated(EventArgs e)
