@@ -1,6 +1,7 @@
 ﻿using DevsFingerPrint.Domain.DTO;
 using DevsFingerPrint.Domain.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -346,6 +347,61 @@ namespace DevsFingerPrint.Infrastructure.Services
                 return json.Substring(start, end - start);
             }
             return null;
+        }
+
+        public List<SucursalDTO> ObtenerSucursales()
+        {
+            if (string.IsNullOrEmpty(_authToken))
+            {
+                if (!IntentarRenovarSesion()) return new List<SucursalDTO>();
+            }
+
+            try
+            {
+                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/sucursales", null, _authToken);
+
+                if (!string.IsNullOrEmpty(jsonResponse))
+                {
+                    // Opción A: Si el endpoint del backend devuelve la entidad con relaciones circulares,
+                    // podemos deserializar a un objeto anónimo o lista dinámica primero para evitar el choque de EF.
+                    try
+                    {
+                        return JsonConvert.DeserializeObject<List<SucursalDTO>>(jsonResponse) ?? new List<SucursalDTO>();
+                    }
+                    catch
+                    {
+                        // Opción B (Fallback de seguridad): Mapeo manual si el JSON trae propiedades de navegación extra
+                        var jsonToken = Newtonsoft.Json.Linq.JToken.Parse(jsonResponse);
+                        var listaSucursales = new List<SucursalDTO>();
+
+                        foreach (var item in jsonToken)
+                        {
+                            listaSucursales.Add(new SucursalDTO
+                            {
+                                Id = item["Id"]?.Value<int>() ?? item["id"]?.Value<int>() ?? 0,
+                                Nombre = item["Nombre"]?.Value<string>() ?? item["nombre"]?.Value<string>(),
+                                EmpresaId = item["EmpresaId"]?.Value<int>() ?? item["empresaId"]?.Value<int>() ?? 0,
+                                SerialLector = item["SerialLector"]?.Value<string>() ?? item["serialLector"]?.Value<string>()
+                            });
+                        }
+                        return listaSucursales;
+                    }
+                }
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    if (IntentarRenovarSesion()) return ObtenerSucursales();
+                }
+                System.Diagnostics.Debug.WriteLine($"Error al obtener sucursales: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error general al obtener sucursales: {ex.Message}");
+            }
+
+            return new List<SucursalDTO>();
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using DevsFingerPrint.Infrastructure.Services;
+﻿using DevsFingerPrint.Domain.DTO;
+using DevsFingerPrint.Infrastructure.Services;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -203,6 +204,24 @@ namespace DevsFingerPrint.Presentation
             {
                 // Guardar credenciales encriptadas localmente
                 CredentialStorage.GuardarCredenciales(email, password);
+                var configLocal = DispositivoConfigService.LeerConfiguracion();
+
+                if (configLocal == null || configLocal.SucursalId == 0)
+                {
+                    // Consumo directo del ApiClient usando el endpoint /api/sucursales
+                    List<SucursalDTO> sucursalesDeLaApi = _apiClient.ObtenerSucursales();
+
+                    var formSeleccion = new SeleccionSucursalForm();
+                    formSeleccion.CargarSucursales(sucursalesDeLaApi);
+
+                    this.Hide();
+                    formSeleccion.ShowDialog();
+
+                    configLocal = DispositivoConfigService.LeerConfiguracion();
+
+                    int sucursalIdDefinitiva = configLocal.SucursalId;
+                }
+
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
@@ -225,7 +244,5 @@ namespace DevsFingerPrint.Presentation
             path.CloseFigure();
             return path;
         }
-
-
     }
 }
