@@ -1,18 +1,14 @@
 ﻿using DevsFingerPrint.Domain.DTO;
 using DevsFingerPrint.Infrastructure.Services;
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 
 namespace DevsFingerPrint.Presentation
 {
     public partial class FormLogin : Form
     {
-
         private readonly ApiClient _apiClient;
 
         // Colores basados en la imagen
@@ -22,9 +18,9 @@ namespace DevsFingerPrint.Presentation
         private readonly Color ColorAzul = Color.FromArgb(24, 103, 255);      // Azul vibrante (Botón e Ícono)
         private readonly Color ColorTextoSub = Color.FromArgb(140, 155, 185);  // Gris texto secundario
 
-        // Controles
-        private TextBox txtCorreo;
-        private TextBox txtPassword;
+        // Controles adaptados para Agente
+        private TextBox txtClientId;
+        private TextBox txtClientSecret;
         private Button btnIngresar;
 
         public FormLogin(ApiClient apiClient)
@@ -37,7 +33,7 @@ namespace DevsFingerPrint.Presentation
 
         private void ConfigurarVentana()
         {
-            this.Text = "Control de Accesos";
+            this.Text = "Instalación de Puesto Biométrico";
             this.Size = new Size(420, 520);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -57,18 +53,18 @@ namespace DevsFingerPrint.Presentation
             };
             cardPanel.Paint += CardPanel_Paint;
 
-            // Label: Correo / Usuario
-            Label lblUsuario = new Label
+            // Label: Client ID
+            Label lblClientId = new Label
             {
-                Text = "Correo",
+                Text = "Client ID / Puesto",
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 Location = new Point(25, 25),
                 AutoSize = true
             };
 
-            // Input: Correo / Usuario
-            txtCorreo = new TextBox
+            // Input: Client ID
+            txtClientId = new TextBox
             {
                 Location = new Point(25, 50),
                 Size = new Size(290, 30),
@@ -78,18 +74,18 @@ namespace DevsFingerPrint.Presentation
                 Font = new Font("Segoe UI", 10.5f)
             };
 
-            // Label: Contraseña
-            Label lblPassword = new Label
+            // Label: Client Secret
+            Label lblClientSecret = new Label
             {
-                Text = "Contraseña",
+                Text = "Client Secret",
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 Location = new Point(25, 100),
                 AutoSize = true
             };
 
-            // Input: Contraseña
-            txtPassword = new TextBox
+            // Input: Client Secret
+            txtClientSecret = new TextBox
             {
                 Location = new Point(25, 125),
                 Size = new Size(290, 30),
@@ -100,10 +96,10 @@ namespace DevsFingerPrint.Presentation
                 UseSystemPasswordChar = true
             };
 
-            // Botón: Iniciar sesión
+            // Botón: Vincular Puesto
             btnIngresar = new Button
             {
-                Text = "Iniciar sesión",
+                Text = "Vincular Puesto",
                 Location = new Point(25, 200),
                 Size = new Size(290, 42),
                 BackColor = ColorAzul,
@@ -115,10 +111,10 @@ namespace DevsFingerPrint.Presentation
             btnIngresar.FlatAppearance.BorderSize = 0;
             btnIngresar.Click += BtnIngresar_Click;
 
-            cardPanel.Controls.Add(lblUsuario);
-            cardPanel.Controls.Add(txtCorreo);
-            cardPanel.Controls.Add(lblPassword);
-            cardPanel.Controls.Add(txtPassword);
+            cardPanel.Controls.Add(lblClientId);
+            cardPanel.Controls.Add(txtClientId);
+            cardPanel.Controls.Add(lblClientSecret);
+            cardPanel.Controls.Add(txtClientSecret);
             cardPanel.Controls.Add(btnIngresar);
 
             this.Controls.Add(cardPanel);
@@ -154,20 +150,20 @@ namespace DevsFingerPrint.Presentation
                 g.DrawString("CA", fontBadge, textBrush, iconRect, sf);
             }
 
-            // 2. Dibujar Titular "Control de Accesos"
+            // 2. Dibujar Titular
             using (Font fontTitulo = new Font("Segoe UI", 15f, FontStyle.Bold))
             using (SolidBrush brushTitulo = new SolidBrush(Color.White))
             {
                 StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
-                g.DrawString("Control de Accesos", fontTitulo, brushTitulo, new PointF(this.ClientSize.Width / 2, 95), sf);
+                g.DrawString("Terminal Biométrica", fontTitulo, brushTitulo, new PointF(this.ClientSize.Width / 2, 95), sf);
             }
 
-            // 3. Dibujar Bajada "Iniciá sesión para acceder al panel"
+            // 3. Dibujar Bajada
             using (Font fontSub = new Font("Segoe UI", 9.5f))
             using (SolidBrush brushSub = new SolidBrush(ColorTextoSub))
             {
                 StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
-                g.DrawString("Iniciá sesión para acceder al panel", fontSub, brushSub, new PointF(this.ClientSize.Width / 2, 128), sf);
+                g.DrawString("Ingrese las credenciales del agente", fontSub, brushSub, new PointF(this.ClientSize.Width / 2, 128), sf);
             }
         }
 
@@ -189,45 +185,30 @@ namespace DevsFingerPrint.Presentation
 
         private void BtnIngresar_Click(object sender, EventArgs e)
         {
-            string email = txtCorreo.Text.Trim();
-            string password = txtPassword.Text;
+            string clientId = txtClientId.Text.Trim();
+            string clientSecret = txtClientSecret.Text.Trim();
 
-            if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
+            if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
             {
-                MessageBox.Show("Por favor complete correo y contraseña.", "Atención", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Por favor complete Client ID y Client Secret.", "Atención", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             btnIngresar.Enabled = false;
 
-            if (_apiClient.IniciarSesion(email, password))
+            // Autenticación como Agente de Sucursal
+            if (_apiClient.IniciarSesionAgente(clientId, clientSecret))
             {
-                // Guardar credenciales encriptadas localmente
-                CredentialStorage.GuardarCredenciales(email, password);
-                var configLocal = DispositivoConfigService.LeerConfiguracion();
+                // Guardar credenciales de máquina encriptadas con DPAPI localmente
+                CredentialStorage.GuardarCredenciales(clientId, clientSecret);
 
-                if (configLocal == null || configLocal.SucursalId == 0)
-                {
-                    // Consumo directo del ApiClient usando el endpoint /api/sucursales
-                    List<SucursalDTO> sucursalesDeLaApi = _apiClient.ObtenerSucursales();
-
-                    var formSeleccion = new SeleccionSucursalForm();
-                    formSeleccion.CargarSucursales(sucursalesDeLaApi);
-
-                    this.Hide();
-                    formSeleccion.ShowDialog();
-
-                    configLocal = DispositivoConfigService.LeerConfiguracion();
-
-                    int sucursalIdDefinitiva = configLocal.SucursalId;
-                }
-
+                MessageBox.Show("Puesto vinculado correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
             else
             {
-                MessageBox.Show("Credenciales inválidas o servidor no disponible.", "Error de Login", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Credenciales de agente inválidas o servidor no disponible.", "Error de Autenticación", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnIngresar.Enabled = true;
             }
         }

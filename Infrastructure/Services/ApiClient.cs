@@ -31,6 +31,53 @@ namespace DevsFingerPrint.Infrastructure.Services
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
         }
 
+        public bool IniciarSesionAgente(string clientId, string clientSecret)
+        {
+            try
+            {
+                string url = $"{_baseUrl}/api/auth/agente";
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "POST";
+                request.ContentType = "application/json";
+
+                // Armamos el payload JSON que espera la API para el agente
+                string jsonBody = "{\"clientId\":\"" + clientId + "\", \"clientSecret\":\"" + clientSecret + "\"}";
+                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
+
+                request.ContentLength = data.Length;
+
+                using (var stream = request.GetRequestStream())
+                {
+                    stream.Write(data, 0, data.Length);
+                }
+
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode == HttpStatusCode.OK)
+                    {
+                        using (var reader = new StreamReader(response.GetResponseStream()))
+                        {
+                            string responseString = reader.ReadToEnd();
+
+                            // Aquí parseás la respuesta para extraer el token JWT.
+                            // Suponiendo que el JSON devuelto es {"token": "eyJhbGciOi..."}
+                            _authToken = ExtraerTokenDeJson(responseString);
+                            return !string.IsNullOrEmpty(_authToken);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Loguear error de conexión o credenciales inválidas (401)
+                Console.WriteLine("Error en login de agente: " + ex.Message);
+            }
+
+            return false;
+        }
+
+
+        /*
         public bool IniciarSesion(string email, string password)
         {
             try
@@ -94,6 +141,7 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             return false;
         }
+        */
 
         public List<Huella> ObtenerHuellas(int empresaId)
         {

@@ -1,80 +1,69 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 
-namespace DevsFingerPrint.Infrastructure.Services
+public static class CredentialStorage
 {
-    public static class CredentialStorage
+    private static readonly string FolderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ControlFichajes");
+    private static readonly string FilePath = Path.Combine(FolderPath, "config.dat");
+
+    public static void GuardarCredenciales(string clientId, string clientSecret)
     {
-
-        private static readonly string FolderPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ControlFichajes"
-    );
-        private static readonly string FilePath = Path.Combine(FolderPath, "config.dat");
-
-        // Guarda usuario y contraseña encriptados
-        public static void GuardarCredenciales(string usuario, string password)
+        if (!Directory.Exists(FolderPath))
         {
-            try
-            {
-                if (!Directory.Exists(FolderPath))
-                    Directory.CreateDirectory(FolderPath);
-
-                string data = string.Format("{0};{1}", usuario, password);
-                byte[] plainBytes = Encoding.UTF8.GetBytes(data);
-
-                // Encripta con la clave del usuario actual de Windows
-                byte[] encryptedBytes = ProtectedData.Protect(
-                    plainBytes,
-                    null,
-                    DataProtectionScope.CurrentUser
-                );
-
-                File.WriteAllBytes(FilePath, encryptedBytes);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error al guardar credenciales: {ex.Message}");
-            }
+            Directory.CreateDirectory(FolderPath);
         }
 
-        // Lee y desencripta credenciales. Devuelve (Usuario, Password) o null si no existe.
-        public static string[] CargarCredenciales()
+        // Unimos ambos valores separados por un punto y coma
+        string rawData = $"{clientId};{clientSecret}";
+        byte[] plainTextBytes = Encoding.UTF8.GetBytes(rawData);
+
+        // Cifrado nativo de Windows (DPAPI) vinculado al usuario actual de la PC
+        byte[] encryptedBytes = ProtectedData.Protect(plainTextBytes, null, DataProtectionScope.CurrentUser);
+
+        File.WriteAllBytes(FilePath, encryptedBytes);
+    }
+
+    public static bool CargarCredenciales(out string clientId, out string clientSecret)
+    {
+        clientId = string.Empty;
+        clientSecret = string.Empty;
+
+        if (!File.Exists(FilePath))
+            return false;
+
+        try
         {
-            try
+            byte[] encryptedBytes = File.ReadAllBytes(FilePath);
+
+            // Descifrado DPAPI
+            byte[] plainTextBytes = ProtectedData.Unprotect(encryptedBytes, null, DataProtectionScope.CurrentUser);
+
+            string rawData = Encoding.UTF8.GetString(plainTextBytes);
+            string[] parts = rawData.Split(new char[] { ';' }, 2);
+
+            if (parts.Length == 2)
             {
-                if (!File.Exists(FilePath))
-                    return null;
-
-                byte[] encryptedBytes = File.ReadAllBytes(FilePath);
-
-                byte[] plainBytes = ProtectedData.Unprotect(
-                    encryptedBytes,
-                    null,
-                    DataProtectionScope.CurrentUser
-                );
-
-                string data = Encoding.UTF8.GetString(plainBytes);
-                return data.Split(';');
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error al cargar credenciales: {ex.Message}");
-                return null; // Si falla la desencriptación o el archivo está corrupto
+                clientId = parts[0];
+                clientSecret = parts[1];
+                return true;
             }
         }
-
-        // Por si en algún momento querés cerrar sesión o cambiar de usuario
-        public static void BorrarCredenciales()
+        catch
         {
-            if (File.Exists(FilePath))
-                File.Delete(FilePath);
+            // Si el archivo está corrupto o cambió el contexto de seguridad, limpiamos
+            BorrarCredenciales();
         }
 
+        return false;
+    }
 
+    public static void BorrarCredenciales()
+    {
+        if (File.Exists(FilePath))
+        {
+            File.Delete(FilePath);
+        }
     }
 }

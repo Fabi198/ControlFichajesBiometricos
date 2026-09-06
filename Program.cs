@@ -23,33 +23,26 @@ namespace DevsFingerPrint
 
             ApiClient apiClient = new ApiClient(apiUrl);
             bool logueado = false;
+            string clientId, clientSecret;
 
-            // 1. Intentar cargar credenciales guardadas en AppData
-            string[] credenciales = CredentialStorage.CargarCredenciales();
-
-            if (credenciales != null && credenciales.Length == 2)
+            // 2. Intentar cargar credenciales de agente guardadas localmente (Paso 2)
+            if (CredentialStorage.CargarCredenciales(out clientId, out clientSecret))
             {
-                string usuarioGuardado = credenciales[0];
-                string passwordGuardado = credenciales[1];
-
-                // Probar autenticar en silencio
-                logueado = apiClient.IniciarSesion(usuarioGuardado, passwordGuardado);
+                // 3. Intentar loguear automáticamente en la API (Paso 3)
+                logueado = apiClient.IniciarSesionAgente(clientId, clientSecret);
             }
 
-            // 2. Si no hay credenciales o la autenticación falló, pedir Login manual
+            // 4. Si no hay credenciales válidas, mostrar el formulario de alta/instalación
             if (!logueado)
             {
-                using (FormLogin loginForm = new FormLogin(apiClient))
+                FormLogin formInstalacion = new FormLogin(apiClient);
+                if (formInstalacion.ShowDialog() != DialogResult.OK)
                 {
-                    if (loginForm.ShowDialog() != DialogResult.OK)
-                    {
-                        // Si el usuario cerró la ventana de login sin ingresar, se cierra el programa
-                        return;
-                    }
+                    return; // Si el usuario cancela, se cierra la app
                 }
             }
 
-            // 3. Iniciar la ventana principal del sistema (ya autenticado y con JWT listo)
+            // 5. Arrancar la aplicación con el contexto del agente activo
             Application.Run(new MainTrayContext(apiClient));
         }
     }
