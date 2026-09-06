@@ -23,7 +23,6 @@ namespace DevsFingerPrint.Presentation
 
         private readonly System.Windows.Forms.Timer syncTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
-        private const int EMPRESA_ID = 1;
 
         public MainTrayContext(ApiClient apiClient)
         {
@@ -99,10 +98,10 @@ namespace DevsFingerPrint.Presentation
             {
                 try
                 {
-                    System.Diagnostics.Debug.WriteLine($"[LOG Sync] Solicitando empleados y huellas para Empresa ID: {EMPRESA_ID}...");
+                    System.Diagnostics.Debug.WriteLine($"[LOG Sync] Solicitando empleados y huellas al servidor...");
 
                     List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
-                    List<Huella> listaHuellas = _apiClient.ObtenerHuellas(EMPRESA_ID);
+                    List<Huella> listaHuellas = _apiClient.ObtenerHuellas(); // Eliminado el EMPRESA_ID
 
                     if (listaEmpleados != null && listaHuellas != null)
                     {

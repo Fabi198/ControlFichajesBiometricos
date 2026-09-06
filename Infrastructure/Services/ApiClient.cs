@@ -143,7 +143,7 @@ namespace DevsFingerPrint.Infrastructure.Services
         }
         */
 
-        public List<Huella> ObtenerHuellas(int empresaId)
+        public List<Huella> ObtenerHuellas()
         {
             if (string.IsNullOrEmpty(_authToken))
             {
@@ -152,8 +152,8 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             try
             {
-                // Ajustá esta URL a la ruta exacta de tu HuellasController (ej: /api/huellas/empresa/{empresaId})
-                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/huellas/empresa/{empresaId}", null, _authToken);
+                // La URL ya no lleva el parámetro de empresa, el backend lo infiere del JWT del agente
+                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/huellas", null, _authToken);
 
                 if (!string.IsNullOrEmpty(jsonResponse))
                 {
@@ -164,7 +164,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             {
                 if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    if (IntentarRenovarSesion()) return ObtenerHuellas(empresaId);
+                    if (IntentarRenovarSesion()) return ObtenerHuellas();
                 }
                 System.Diagnostics.Debug.WriteLine($"Error al obtener huellas: {ex.Message}");
             }
