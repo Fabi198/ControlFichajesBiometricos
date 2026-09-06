@@ -13,5 +13,6 @@ namespace DevsFingerPrint.Domain.Models
         public string Correo { get; set; }
         public string PasswordHash { get; set; }
         public string Rol { get; set; } = "RRHH";
+        public int Activo { get; set; } = 1;
     }
 }

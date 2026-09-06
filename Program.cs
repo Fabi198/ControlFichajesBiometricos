@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
+using System.Configuration;
 
 namespace DevsFingerPrint
 {
@@ -18,7 +19,9 @@ namespace DevsFingerPrint
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            ApiClient apiClient = new ApiClient("http://161.153.193.159:80");
+            string apiUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://161.153.193.159:80";
+
+            ApiClient apiClient = new ApiClient(apiUrl);
             bool logueado = false;
 
             // 1. Intentar cargar credenciales guardadas en AppData
