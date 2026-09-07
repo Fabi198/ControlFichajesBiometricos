@@ -76,73 +76,6 @@ namespace DevsFingerPrint.Infrastructure.Services
             return false;
         }
 
-
-        /*
-        public bool IniciarSesion(string email, string password)
-        {
-            try
-            {
-                // 1. DTO con las claves exactas que espera el backend ("email" y "password")
-                var loginDto = new
-                {
-                    email = email,
-                    password = password
-                };
-
-                string jsonBody = JsonConvert.SerializeObject(loginDto);
-                string url = $"{_baseUrl}/api/auth/login";
-
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-                request.Method = "POST";
-                request.ContentType = "application/json";
-
-                byte[] byteArray = Encoding.UTF8.GetBytes(jsonBody);
-                request.ContentLength = byteArray.Length;
-
-                using (Stream dataStream = request.GetRequestStream())
-                {
-                    dataStream.Write(byteArray, 0, byteArray.Length);
-                }
-
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream()))
-                {
-                    string jsonResponse = reader.ReadToEnd();
-
-                    // 2. Deserializar la respuesta para extraer el JWT
-                    var result = JsonConvert.DeserializeObject<LoginResponseDTO>(jsonResponse);
-
-                    if (result != null && !string.IsNullOrEmpty(result.Token))
-                    {
-                        _authToken = result.Token;
-                        return true;
-                    }
-                }
-            }
-            catch (WebException ex)
-            {
-                if (ex.Response is HttpWebResponse errorResponse)
-                {
-                    using (var reader = new StreamReader(errorResponse.GetResponseStream()))
-                    {
-                        string errorBody = reader.ReadToEnd();
-                        System.Diagnostics.Debug.WriteLine($"[Login Error {(int)errorResponse.StatusCode}]: {errorBody}");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Login Error]: {ex.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error general en Login: {ex.Message}");
-            }
-
-            return false;
-        }
-        */
-
         public List<Huella> ObtenerHuellas()
         {
             if (string.IsNullOrEmpty(_authToken))
@@ -174,37 +107,33 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public List<Empleado> ObtenerEmpleados()
         {
-            // 1. Validar que exista una sesión activa
             if (string.IsNullOrEmpty(_authToken))
             {
-                System.Diagnostics.Debug.WriteLine("[API Error] No hay token de sesión. Inicie sesión primero.");
-                return new List<Empleado>();
+                if (!IntentarRenovarSesion()) return new List<Empleado>();
             }
 
             try
             {
-                // 2. Hacer la petición GET a /api/empleados incluyendo el Token JWT
                 string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/empleados", null, _authToken);
 
                 if (!string.IsNullOrEmpty(jsonResponse))
                 {
-                    // Deserializar la lista con Newtonsoft.Json
-                    List<Empleado> empleados = JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse);
-                    return empleados ?? new List<Empleado>();
+                    return JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse) ?? new List<Empleado>();
                 }
             }
             catch (WebException ex)
             {
-                // 3. Manejar vencimiento del token (401 Unauthorized) con renovación automática
                 if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     System.Diagnostics.Debug.WriteLine("[API] Token expirado al obtener empleados. Renovando sesión...");
 
-                    string[] creds = CredentialStorage.CargarCredenciales();
-                    if (creds != null && creds.Length == 2 && IniciarSesion(creds[0], creds[1]))
+                    // Usamos la forma correcta de cargar las credenciales DPAPI con 'out'
+                    if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
                     {
-                        // Reintentar la consulta con el token actualizado
-                        return ObtenerEmpleados();
+                        if (IniciarSesionAgente(clientId, clientSecret))
+                        {
+                            return ObtenerEmpleados(); // Reintentar con el nuevo token
+                        }
                     }
                 }
 
@@ -218,31 +147,8 @@ namespace DevsFingerPrint.Infrastructure.Services
             return new List<Empleado>();
         }
 
-        public List<Empleado> ObtenerEmpleadosPorEmpresa(int empresaId)
-        {
-            if (string.IsNullOrEmpty(_authToken)) return new List<Empleado>();
-
-            try
-            {
-                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/empleados/empresa/{empresaId}", null, _authToken);
-
-                if (!string.IsNullOrEmpty(jsonResponse))
-                {
-                    return JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse) ?? new List<Empleado>();
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error al obtener empleados por empresa: {ex.Message}");
-            }
-
-            return new List<Empleado>();
-        }
-
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
-            if (fichadas == null || fichadas.Count == 0) return true;
-
             if (string.IsNullOrEmpty(_authToken))
             {
                 if (!IntentarRenovarSesion()) return false;
@@ -250,50 +156,55 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             try
             {
-                // Mapear de Fichada (Local DB) a FichadaRequestDto (API)
-                var listaDtos = fichadas.Select(f => new
-                {
-                    empleadoId = f.EmpleadoId,
-                    fechaHora = f.FechaHora.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    tipoRegistro = f.TipoRegistro, // Asegurar que sea "Entrada" o "Salida"
-                    metodo = f.Metodo == "BiometricoFAKE" ? "Biometrico" : f.Metodo // Reemplazar valores de prueba no válidos
-                }).ToList();
+                string jsonBody = JsonConvert.SerializeObject(fichadas);
+                string url = $"{_baseUrl}/api/fichadas/lote";
 
-                string jsonBody = JsonConvert.SerializeObject(listaDtos);
-
-                // Llamada al endpoint POST /api/fichadas/bulk (o /api/fichadas)
-                string jsonResponse = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
-
-                return true;
+                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
+                return !string.IsNullOrEmpty(response);
             }
             catch (WebException ex)
             {
                 if (ex.Response is HttpWebResponse errorResponse)
                 {
-                    using (var stream = errorResponse.GetResponseStream())
-                    using (var reader = new System.IO.StreamReader(stream))
+                    if (errorResponse.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[API Error {(int)errorResponse.StatusCode}] {reader.ReadToEnd()}");
+                        // Token vencido, intentamos renovar y reintentar una vez
+                        if (IntentarRenovarSesion())
+                        {
+                            return EnviarFichadas(fichadas);
+                        }
                     }
-
-                    if (errorResponse.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                    else if (errorResponse.StatusCode == HttpStatusCode.Forbidden)
                     {
-                        return EnviarFichadas(fichadas);
+                        System.Diagnostics.Debug.WriteLine("[API ERROR] 403 Forbidden: La terminal ha sido dada de baja o bloqueada por el servidor.");
+                        // Opcional: Podés disparar un alerta visual o evento de bloqueo de terminal
                     }
                 }
+
+                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
             }
 
-            return false;
+            return false; // Si falla, devuelve false para que MainTrayContext NO marque las fichadas como enviadas
         }
 
         private bool IntentarRenovarSesion()
         {
-            string[] creds = CredentialStorage.CargarCredenciales();
-            if (creds != null && creds.Length == 2)
+            try
             {
-                return IniciarSesion(creds[0], creds[1]);
+                // 1. Cargar las credenciales de máquina desde el almacenamiento DPAPI (config.dat)
+                if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
+                {
+                    // 2. Volver a autenticarse contra el endpoint de agentes
+                    return IniciarSesionAgente(clientId, clientSecret);
+                }
+
+                System.Diagnostics.Debug.WriteLine("[API ERROR] No se encontraron credenciales locales de agente para renovar la sesión.");
             }
-            System.Diagnostics.Debug.WriteLine("[API Error] No se encontraron credenciales guardadas para auto-login.");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[API ERROR] Excepción al intentar renovar la sesión: {ex.Message}");
+            }
+
             return false;
         }
 
