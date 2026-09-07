@@ -242,54 +242,38 @@ namespace DevsFingerPrint.Infrastructure.Services
         {
             if (string.IsNullOrEmpty(_authToken))
             {
-                System.Diagnostics.Debug.WriteLine("Error: Debe iniciar sesión antes de enviar la huella.");
-                return false;
+                if (!IntentarRenovarSesion()) return false;
             }
 
             try
             {
-                string json = string.Format(
-                    "{{\"EmpleadoId\":{0},\"TemplateHuellaBase64\":\"{1}\",\"IndiceDedo\":{2}}}",
-                    huella.EmpleadoId,
-                    huella.TemplateBiometrico,
-                    indiceDedo
-                );
-
-                string url = $"{_baseUrl}/api/empleados/enrolar";
-
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-                request.Method = "POST";
-                request.ContentType = "application/json";
-
-                // 🔑 INCLUIR EL TOKEN JWT EN EL HEADER DE AUTORIZACIÓN
-                request.Headers.Add("Authorization", "Bearer " + _authToken);
-
-                byte[] byteArray = Encoding.UTF8.GetBytes(json);
-                request.ContentLength = byteArray.Length;
-
-                using (Stream dataStream = request.GetRequestStream())
+                // Estructura opcional de payload según tu API (ej: combinando huella e índice)
+                var payload = new
                 {
-                    dataStream.Write(byteArray, 0, byteArray.Length);
-                }
+                    empleadoId = huella.EmpleadoId,
+                    indiceDedo = indiceDedo,
+                    templateBiometrico = huella.TemplateBiometrico
+                };
 
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                {
-                    return response.StatusCode == HttpStatusCode.OK ||
-                           response.StatusCode == HttpStatusCode.Created;
-                }
+                string jsonBody = JsonConvert.SerializeObject(payload);
+                string url = $"{_baseUrl}/api/huellas"; // Ruta protegida por el token del agente
+
+                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
+                return !string.IsNullOrEmpty(response);
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse errorResponse)
+                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    using (var reader = new StreamReader(errorResponse.GetResponseStream()))
+                    if (IntentarRenovarSesion())
                     {
-                        string errorBody = reader.ReadToEnd();
-                        System.Diagnostics.Debug.WriteLine($"[API Error {(int)errorResponse.StatusCode}]: {errorBody}");
+                        return GuardarHuella(huella, indiceDedo);
                     }
                 }
-                return false;
+                System.Diagnostics.Debug.WriteLine($"Error al guardar huella: {ex.Message}");
             }
+
+            return false;
         }
 
         // Helper simple para extraer "token":"valor" sin Newtonsoft si hiciera falta
