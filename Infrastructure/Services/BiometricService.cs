@@ -74,6 +74,13 @@ namespace DevsFingerPrint.Infrastructure.Services
                 {
                     Debug.WriteLine("[LOG Biometric ERROR] Lista de lectores vacía. Verifique la conexión USB.");
                     OnEstadoCambiado?.Invoke("No se detectó ningún lector biométrico conectado.");
+                    MessageBox.Show(
+                        "No se detectó ningún lector biométrico conectado.\nLa aplicación no puede funcionar sin el dispositivo y se cerrará.",
+                        "Error de Hardware",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                    Environment.Exit(0);
                     return false;
                 }
 
@@ -258,8 +265,14 @@ namespace DevsFingerPrint.Infrastructure.Services
                 {
                     Debug.WriteLine("[LOG Biometric ERROR FATAL] El lector falló o se desconectó. Cerrando app...");
                     OnEstadoCambiado?.Invoke("Lector desconectado o con fallo crítico. Cerrando aplicación...");
-
-                    System.Threading.Thread.Sleep(1000);
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(2000);
+                    MessageBox.Show(
+        "El lector biométrico se ha desconectado o sufrió un fallo crítico.\nLa aplicación se cerrará.",
+        "Error de Hardware",
+        MessageBoxButtons.OK,
+        MessageBoxIcon.Error
+    );
                     Environment.Exit(0); // Cierra todo el proceso de forma limpia
                     return;
                 }
