@@ -13,6 +13,7 @@ namespace DevsFingerPrint.Domain.Interfaces
         void GuardarFichadaLocal(Fichada fichada);
         IEnumerable<Fichada> ObtenerFichadasPendientes();
         void MarcarComoSincronizadas(IEnumerable<int> idsFichadas);
+        bool LimpiarFichadasSincronizadas();
 
         // Operaciones de cache local
         IEnumerable<Huella> ObtenerHuellasLocales();

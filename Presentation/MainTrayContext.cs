@@ -131,6 +131,16 @@ namespace DevsFingerPrint.Presentation
                             fichadaRepository.MarcarComoSincronizadas(ids);
                             System.Diagnostics.Debug.WriteLine($"[LOG Sync] {listaPendientes.Count} fichada(s) marcadas como sincronizadas en DB local.");
                             MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
+                            // Ejecutamos la limpieza y validamos su resultado
+                            bool limpiezaOk = fichadaRepository.LimpiarFichadasSincronizadas();
+                            if (limpiezaOk)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[LOG Sync] Limpieza de fichadas locales antiguas completada correctamente.");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[LOG Sync] ADVERTENCIA: La sincronización en servidor fue exitosa, pero falló la limpieza local.");
+                            }
                         }
                         else
                         {
@@ -235,33 +245,45 @@ namespace DevsFingerPrint.Presentation
         {
             // Obtener los horarios teóricos del empleado desde la base de datos local
             var horario = fichadaRepository.ObtenerHorarioLaboral(empleadoId);
+            DateTime ahora = DateTime.Now;
+            TimeSpan horaActual = ahora.TimeOfDay;
 
             if (horario != null)
             {
+                int horaEntradaH = horario.HoraEntrada.Hours;
 
-                // Para testear, puedes reemplazar temporalmente DateTime.Now.TimeOfDay por una hora simulada:
-                // TimeSpan horaActual = new TimeSpan(9, 5, 0);   // Simula las 09:05 (Debería marcar Entrada si su turno es a las 09:00)
-                // TimeSpan horaActual = new TimeSpan(18, 10, 0); // Simula las 18:10 (Debería marcar Salida si su turno termina a las 18:00)
-                // TimeSpan horaActual = new TimeSpan(13, 0, 0);  // Simula las 13:00 (Fuera de rango, debería alternar con la última)
+                // 1. Clasificación del tipo de horario según la Hora de Entrada
+                bool esTrasdia = horaEntradaH >= 18 && horaEntradaH < 24;    // Entran de tarde/noche y salen al día siguiente
+                bool esNocturno = horaEntradaH >= 0 && horaEntradaH < 6;      // Entran en la madrugada (00:00 a 05:59)
+                bool esDiurno = !esTrasdia && !esNocturno;                   // Horario normal de día (06:00 a 17:59)
 
+                if (ultimaFichada != null)
+                {
+                    DateTime fechaUltima = ultimaFichada.FechaHora; // Asegúrate de que tu modelo Fichada tenga esta propiedad DateTime
 
-
-
-
-
-                TimeSpan horaActual = DateTime.Now.TimeOfDay;
-
-                // Ventana de tolerancia (ej: 2 horas antes o después del horario estipulado)
-                bool cercaEntrada = Math.Abs((horaActual - horario.HoraEntrada).TotalMinutes) <= 120;
-
-                double minutosDesdeSalida = (horaActual - horario.HoraSalida).TotalMinutes;
-                bool cercaSalida = minutosDesdeSalida >= -15 && minutosDesdeSalida <= 180;
-
-                if (cercaEntrada && !cercaSalida) return "Entrada";
-                if (cercaSalida && !cercaEntrada) return "Salida";
+                    if (esTrasdia)
+                    {
+                        // Trasdia: Cruza la medianoche. Si la última fue Entrada y aún estamos en el ciclo del turno (madrugada/mañana siguiente), toca Salida.
+                        // Si la última fichada fue hace más de un día y medio, se asume que olvidó marcar y se reinicia a Entrada.
+                        TimeSpan diferenciaTiempo = ahora - fechaUltima;
+                        if (ultimaFichada.TipoRegistro == "Entrada" && diferenciaTiempo.TotalHours < 16)
+                        {
+                            return "Salida";
+                        }
+                    }
+                    else
+                    {
+                        // Diurno o Nocturno: Ocurren y terminan el mismo día.
+                        // Si la última fichada fue en un día calendario anterior, se reinicia el flipper automáticamente (es un nuevo día -> Entrada).
+                        if (fechaUltima.Date < ahora.Date)
+                        {
+                            return "Entrada";
+                        }
+                    }
+                }
             }
 
-            // Fallback: Si no coincide claramente con ningún horario o está fuera de rango, alternar el último
+            // Fallback de alternancia estándar (Flipper): si la última fue Entrada, toca Salida y viceversa.
             if (ultimaFichada != null)
             {
                 return ultimaFichada.TipoRegistro == "Entrada" ? "Salida" : "Entrada";

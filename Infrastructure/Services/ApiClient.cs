@@ -5,19 +5,11 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Text;
 
 namespace DevsFingerPrint.Infrastructure.Services
 {
-    
-    public class CatalogoResponse
-    {
-        public List<Empleado> Empleados { get; set; } = new List<Empleado>();
-        public List<Huella> Huellas { get; set; } = new List<Huella>();
-    }
-
     public class ApiClient
     {
         private readonly string _baseUrl;
@@ -26,8 +18,6 @@ namespace DevsFingerPrint.Infrastructure.Services
         public ApiClient(string baseUrl)
         {
             _baseUrl = baseUrl.TrimEnd('/');
-
-            // Habilitar TLS 1.2 para peticiones HTTPS seguras
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
         }
 
@@ -36,175 +26,199 @@ namespace DevsFingerPrint.Infrastructure.Services
             try
             {
                 string url = $"{_baseUrl}/api/auth/agente";
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-                request.Method = "POST";
-                request.ContentType = "application/json";
-
-                // Armamos el payload JSON que espera la API para el agente
                 string jsonBody = "{\"clientId\":\"" + clientId + "\", \"clientSecret\":\"" + clientSecret + "\"}";
-                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
+                string responseString = RealizarPeticionSinAuth("POST", url, jsonBody);
 
-                request.ContentLength = data.Length;
-
-                using (var stream = request.GetRequestStream())
+                if (!string.IsNullOrEmpty(responseString))
                 {
-                    stream.Write(data, 0, data.Length);
-                }
-
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                {
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        using (var reader = new StreamReader(response.GetResponseStream()))
-                        {
-                            string responseString = reader.ReadToEnd();
-
-                            // Aquí parseás la respuesta para extraer el token JWT.
-                            // Suponiendo que el JSON devuelto es {"token": "eyJhbGciOi..."}
-                            _authToken = ExtraerTokenDeJson(responseString);
-                            return !string.IsNullOrEmpty(_authToken);
-                        }
-                    }
+                    _authToken = ExtraerTokenDeJson(responseString);
+                    System.Diagnostics.Debug.WriteLine("TOKEN ACTUAL: " + _authToken);
+                    return !string.IsNullOrEmpty(_authToken);
                 }
             }
             catch (Exception ex)
             {
-                // Loguear error de conexión o credenciales inválidas (401)
-                Console.WriteLine("Error en login de agente: " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("Error en login de agente: " + ex.Message);
             }
+            return false;
+        }
 
+        public bool EnviarHeartbeat(int agenteId)
+        {
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
+            try
+            {
+                string url = $"{_baseUrl}/api/agentes/{agenteId}/heartbeat";
+                string response = RealizarPeticion("POST", url, null, _authToken);
+                return !string.IsNullOrEmpty(response);
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                {
+                    return EnviarHeartbeat(agenteId);
+                }
+                System.Diagnostics.Debug.WriteLine($"Error en heartbeat: {ex.Message}");
+            }
             return false;
         }
 
         public List<Huella> ObtenerHuellas()
         {
-            if (string.IsNullOrEmpty(_authToken))
-            {
-                if (!IntentarRenovarSesion()) return null; // Devolver NULL en error para proteger DB local
-            }
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return null;
 
             try
             {
-                // La URL ya no lleva el parámetro de empresa, el backend lo infiere del JWT del agente
-                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/huellas", null, _authToken);
+                // Extraemos el empresa_id del token JWT del agente
+                int empresaId = ExtraerEmpresaIdDeToken(_authToken);
+                string url = $"{_baseUrl}/api/huellas/empresa/{empresaId}";
 
-                if (!string.IsNullOrEmpty(jsonResponse))
-                {
-                    return JsonConvert.DeserializeObject<List<Huella>>(jsonResponse) ?? new List<Huella>();
-                }
+                string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
+                return string.IsNullOrEmpty(jsonResponse) ? new List<Huella>() : JsonConvert.DeserializeObject<List<Huella>>(jsonResponse);
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
-                    if (IntentarRenovarSesion()) return ObtenerHuellas();
+                    return ObtenerHuellas();
                 }
                 System.Diagnostics.Debug.WriteLine($"Error al obtener huellas: {ex.Message}");
             }
+            return null;
+        }
 
-            return null; // Retornar NULL ante fallas para no vaciar la DB local
+        private int ExtraerEmpresaIdDeToken(string token)
+        {
+            try
+            {
+                string[] parts = token.Split('.');
+                if (parts.Length > 1)
+                {
+                    // Base64Url a Base64 estándar
+                    string base64 = parts[1].Replace('-', '+').Replace('_', '/');
+                    switch (base64.Length % 4)
+                    {
+                        case 2: base64 += "=="; break;
+                        case 3: base64 += "="; break;
+                    }
+
+                    byte[] data = Convert.FromBase64String(base64);
+                    string payloadJson = Encoding.UTF8.GetString(data);
+                    JObject payload = JObject.Parse(payloadJson);
+
+                    JToken tokenEmpresa = payload["empresa_id"] ?? payload["EmpresaId"];
+                    if (tokenEmpresa != null)
+                    {
+                        return tokenEmpresa.Value<int>();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Error al decodificar JWT: " + ex.Message);
+            }
+            return 0;
         }
 
         public List<Empleado> ObtenerEmpleados()
         {
-            if (string.IsNullOrEmpty(_authToken))
-            {
-                if (!IntentarRenovarSesion()) return new List<Empleado>();
-            }
-
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return new List<Empleado>();
             try
             {
                 string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/empleados", null, _authToken);
-
-                if (!string.IsNullOrEmpty(jsonResponse))
-                {
-                    return JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse) ?? new List<Empleado>();
-                }
+                return string.IsNullOrEmpty(jsonResponse) ? new List<Empleado>() : JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse);
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                HttpWebResponse err = ex.Response as HttpWebResponse;
+                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    System.Diagnostics.Debug.WriteLine("[API] Token expirado al obtener empleados. Renovando sesión...");
-
-                    // Usamos la forma correcta de cargar las credenciales DPAPI con 'out'
-                    if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
+                    if (IntentarRenovarSesion())
                     {
-                        if (IniciarSesionAgente(clientId, clientSecret))
-                        {
-                            return ObtenerEmpleados(); // Reintentar con el nuevo token
-                        }
+                        return ObtenerEmpleados();
                     }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"Error al obtener empleados: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("Error al obtener empleados: " + ex.Message);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error general al obtener empleados: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("Error general al obtener empleados: " + ex.Message);
             }
-
             return new List<Empleado>();
         }
 
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
-            if (string.IsNullOrEmpty(_authToken))
-            {
-                if (!IntentarRenovarSesion()) return false;
-            }
-
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
             try
             {
                 string jsonBody = JsonConvert.SerializeObject(fichadas);
-                string url = $"{_baseUrl}/api/fichadas/lote";
+                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
+                return !string.IsNullOrEmpty(response);
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                {
+                    return EnviarFichadas(fichadas);
+                }
+                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
+            }
+            return false;
+        }
+
+        public bool GuardarHuella(Huella huella, int indiceDedo)
+        {
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
+            try
+            {
+                var payload = new
+                {
+                    empleadoId = huella.EmpleadoId,
+                    indiceDedo = indiceDedo,
+                    templateHuellaBase64 = huella.TemplateBiometrico
+                };
+
+                string jsonBody = JsonConvert.SerializeObject(payload);
+
+                // Ruta corregida según el contrato de la API
+                string url = $"{_baseUrl}/api/empleados/enrolar";
 
                 string response = RealizarPeticion("POST", url, jsonBody, _authToken);
                 return !string.IsNullOrEmpty(response);
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse errorResponse)
+                HttpWebResponse err = ex.Response as HttpWebResponse;
+                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    if (errorResponse.StatusCode == HttpStatusCode.Unauthorized)
+                    if (IntentarRenovarSesion())
                     {
-                        // Token vencido, intentamos renovar y reintentar una vez
-                        if (IntentarRenovarSesion())
-                        {
-                            return EnviarFichadas(fichadas);
-                        }
-                    }
-                    else if (errorResponse.StatusCode == HttpStatusCode.Forbidden)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[API ERROR] 403 Forbidden: La terminal ha sido dada de baja o bloqueada por el servidor.");
-                        // Opcional: Podés disparar un alerta visual o evento de bloqueo de terminal
+                        return GuardarHuella(huella, indiceDedo);
                     }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("Error al guardar huella: " + ex.Message);
             }
-
-            return false; // Si falla, devuelve false para que MainTrayContext NO marque las fichadas como enviadas
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Error general al guardar huella: " + ex.Message);
+            }
+            return false;
         }
 
         private bool IntentarRenovarSesion()
         {
             try
             {
-                // 1. Cargar las credenciales de máquina desde el almacenamiento DPAPI (config.dat)
                 if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
                 {
-                    // 2. Volver a autenticarse contra el endpoint de agentes
                     return IniciarSesionAgente(clientId, clientSecret);
                 }
-
-                System.Diagnostics.Debug.WriteLine("[API ERROR] No se encontraron credenciales locales de agente para renovar la sesión.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[API ERROR] Excepción al intentar renovar la sesión: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Excepción al renovar sesión: {ex.Message}");
             }
-
             return false;
         }
 
@@ -214,7 +228,6 @@ namespace DevsFingerPrint.Infrastructure.Services
             request.Method = metodo;
             request.ContentType = "application/json";
 
-            // 🔑 Inyectar el Token JWT si fue proporcionado
             if (!string.IsNullOrEmpty(token))
             {
                 request.Headers.Add("Authorization", "Bearer " + token);
@@ -222,12 +235,11 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             if (!string.IsNullOrEmpty(jsonBody) && (metodo == "POST" || metodo == "PUT"))
             {
-                byte[] byteArray = Encoding.UTF8.GetBytes(jsonBody);
-                request.ContentLength = byteArray.Length;
-
-                using (Stream dataStream = request.GetRequestStream())
+                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
+                request.ContentLength = data.Length;
+                using (Stream stream = request.GetRequestStream())
                 {
-                    dataStream.Write(byteArray, 0, byteArray.Length);
+                    stream.Write(data, 0, data.Length);
                 }
             }
 
@@ -238,113 +250,38 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
         }
 
-        public bool GuardarHuella(Huella huella, int indiceDedo)
+        private string RealizarPeticionSinAuth(string metodo, string url, string jsonBody)
         {
-            if (string.IsNullOrEmpty(_authToken))
-            {
-                if (!IntentarRenovarSesion()) return false;
-            }
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            request.Method = metodo;
+            request.ContentType = "application/json";
 
-            try
+            if (!string.IsNullOrEmpty(jsonBody))
             {
-                // Estructura opcional de payload según tu API (ej: combinando huella e índice)
-                var payload = new
+                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
+                request.ContentLength = data.Length;
+                using (Stream stream = request.GetRequestStream())
                 {
-                    empleadoId = huella.EmpleadoId,
-                    indiceDedo = indiceDedo,
-                    templateBiometrico = huella.TemplateBiometrico
-                };
-
-                string jsonBody = JsonConvert.SerializeObject(payload);
-                string url = $"{_baseUrl}/api/huellas"; // Ruta protegida por el token del agente
-
-                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
-                return !string.IsNullOrEmpty(response);
-            }
-            catch (WebException ex)
-            {
-                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    if (IntentarRenovarSesion())
-                    {
-                        return GuardarHuella(huella, indiceDedo);
-                    }
+                    stream.Write(data, 0, data.Length);
                 }
-                System.Diagnostics.Debug.WriteLine($"Error al guardar huella: {ex.Message}");
             }
 
-            return false;
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+            {
+                return reader.ReadToEnd();
+            }
         }
 
-        // Helper simple para extraer "token":"valor" sin Newtonsoft si hiciera falta
         private string ExtraerTokenDeJson(string json)
         {
             int tokenIndex = json.IndexOf("\"token\":", StringComparison.OrdinalIgnoreCase);
             if (tokenIndex == -1) return null;
 
-            int start = json.IndexOf('"', tokenIndex + 8) + 1;
+            int start = json.IndexOf('"', json.IndexOf(':', tokenIndex)) + 1;
             int end = json.IndexOf('"', start);
 
-            if (start > 0 && end > start)
-            {
-                return json.Substring(start, end - start);
-            }
-            return null;
-        }
-
-        public List<SucursalDTO> ObtenerSucursales()
-        {
-            if (string.IsNullOrEmpty(_authToken))
-            {
-                if (!IntentarRenovarSesion()) return new List<SucursalDTO>();
-            }
-
-            try
-            {
-                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/sucursales", null, _authToken);
-
-                if (!string.IsNullOrEmpty(jsonResponse))
-                {
-                    // Opción A: Si el endpoint del backend devuelve la entidad con relaciones circulares,
-                    // podemos deserializar a un objeto anónimo o lista dinámica primero para evitar el choque de EF.
-                    try
-                    {
-                        return JsonConvert.DeserializeObject<List<SucursalDTO>>(jsonResponse) ?? new List<SucursalDTO>();
-                    }
-                    catch
-                    {
-                        // Opción B (Fallback de seguridad): Mapeo manual si el JSON trae propiedades de navegación extra
-                        var jsonToken = Newtonsoft.Json.Linq.JToken.Parse(jsonResponse);
-                        var listaSucursales = new List<SucursalDTO>();
-
-                        foreach (var item in jsonToken)
-                        {
-                            listaSucursales.Add(new SucursalDTO
-                            {
-                                Id = item["Id"]?.Value<int>() ?? item["id"]?.Value<int>() ?? 0,
-                                Nombre = item["Nombre"]?.Value<string>() ?? item["nombre"]?.Value<string>(),
-                                EmpresaId = item["EmpresaId"]?.Value<int>() ?? item["empresaId"]?.Value<int>() ?? 0,
-                                SerialLector = item["SerialLector"]?.Value<string>() ?? item["serialLector"]?.Value<string>()
-                            });
-                        }
-                        return listaSucursales;
-                    }
-                }
-            }
-            catch (WebException ex)
-            {
-                if (ex.Response is HttpWebResponse errorResponse && errorResponse.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    if (IntentarRenovarSesion()) return ObtenerSucursales();
-                }
-                System.Diagnostics.Debug.WriteLine($"Error al obtener sucursales: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error general al obtener sucursales: {ex.Message}");
-            }
-
-            return new List<SucursalDTO>();
+            return (start > 0 && end > start) ? json.Substring(start, end - start) : null;
         }
     }
 }

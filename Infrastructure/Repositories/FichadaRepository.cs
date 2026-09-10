@@ -165,6 +165,40 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             throw new NotImplementedException();
         }
 
+        public bool LimpiarFichadasSincronizadas()
+        {
+            try
+            {
+                using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+                {
+                    conexion.Open();
+
+                    string query = @"
+                DELETE FROM Fichada 
+                WHERE Sincronizado = 1 
+                AND Id NOT IN (
+                    SELECT MaxId FROM (
+                        SELECT MAX(Id) AS MaxId 
+                        FROM Fichada 
+                        GROUP BY EmpleadoId
+                    ) AS Sub
+                );";
+
+                    using (var command = new SQLiteCommand(query, conexion))
+                    {
+                        int filasAfectadas = command.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine("Limpieza local completada. Registros eliminados: " + filasAfectadas);
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Error al limpiar fichadas locales sincronizadas: " + ex.Message);
+                return false;
+            }
+        }
+
         // Obtiene la última fichada registrada localmente para un empleado específico
         public Fichada ObtenerUltimaFichada(int empleadoId)
         {
