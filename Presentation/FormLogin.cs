@@ -201,6 +201,7 @@ namespace DevsFingerPrint.Presentation
             {
                 // Guardar credenciales de máquina encriptadas con DPAPI localmente
                 CredentialStorage.GuardarCredenciales(clientId, clientSecret);
+                _apiClient.SincronizarSucursal();
 
                 MessageBox.Show("Puesto vinculado correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 this.DialogResult = DialogResult.OK;

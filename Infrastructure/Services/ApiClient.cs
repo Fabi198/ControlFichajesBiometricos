@@ -283,5 +283,111 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             return (start > 0 && end > start) ? json.Substring(start, end - start) : null;
         }
+
+        public bool SincronizarSucursal()
+        {
+            System.Diagnostics.Debug.WriteLine("[LOG SYNC] Iniciando SincronizarSucursal()...");
+
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG SYNC] FALLO: No hay _authToken y falló la renovación de sesión.");
+                return false;
+            }
+
+            try
+            {
+                int sucursalId = ExtraerSucursalIdDeToken(_authToken);
+                System.Diagnostics.Debug.WriteLine($"[LOG SYNC] SucursalId extraído: {sucursalId}");
+
+                if (sucursalId == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG SYNC] FALLO: El sucursalId es 0 (no se encontró en el token o falló la extracción).");
+                    return false;
+                }
+
+                string url = $"{_baseUrl}/api/sucursales/{sucursalId}";
+                System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Realizando petición GET a: {url}");
+
+                string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
+                System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Respuesta recibida de la API: {(string.IsNullOrEmpty(jsonResponse) ? "VACÍA/NULL" : jsonResponse)}");
+
+                if (!string.IsNullOrEmpty(jsonResponse))
+                {
+                    SucursalDTO sucursal = JsonConvert.DeserializeObject<SucursalDTO>(jsonResponse);
+                    if (sucursal != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Deserialización exitosa -> ID: {sucursal.Id}, Nombre: {sucursal.Nombre}, EmpresaId: {sucursal.EmpresaId}, SerialLector: '{sucursal.SerialLector}'");
+
+                        DevsFingerPrint.Infrastructure.Data.LocalDatabase.GuardarSucursalLocal(
+                            sucursal.Id,
+                            sucursal.Nombre,
+                            sucursal.EmpresaId,
+                            sucursal.SerialLector
+                        );
+
+                        System.Diagnostics.Debug.WriteLine($"[LOG API] Sucursal '{sucursal.Nombre}' sincronizada y guardada localmente.");
+                        return true;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG SYNC] FALLO: SucursalDTO quedó en null después de deserializar.");
+                    }
+                }
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG SYNC] Token expirado (401), reintentando SincronizarSucursal()...");
+                    return SincronizarSucursal();
+                }
+                System.Diagnostics.Debug.WriteLine($"Error al sincronizar sucursal (WebException): {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error general al sincronizar sucursal: {ex.Message}");
+            }
+            return false;
+        }
+
+        private int ExtraerSucursalIdDeToken(string token)
+        {
+            try
+            {
+                string[] parts = token.Split('.');
+                if (parts.Length > 1)
+                {
+                    string base64 = parts[1].Replace('-', '+').Replace('_', '/');
+                    switch (base64.Length % 4)
+                    {
+                        case 2: base64 += "=="; break;
+                        case 3: base64 += "="; break;
+                    }
+
+                    byte[] data = Convert.FromBase64String(base64);
+                    string payloadJson = Encoding.UTF8.GetString(data);
+                    System.Diagnostics.Debug.WriteLine($"[LOG JWT Payload]: {payloadJson}");
+
+                    JObject payload = JObject.Parse(payloadJson);
+
+                    JToken tokenSucursal = payload["sucursal_id"] ?? payload["SucursalId"] ?? payload["sucursalId"];
+                    if (tokenSucursal != null)
+                    {
+                        int idExtraido = tokenSucursal.Value<int>();
+                        System.Diagnostics.Debug.WriteLine($"[LOG JWT] Se encontró sucursal_id en el payload: {idExtraido}");
+                        return idExtraido;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG JWT] ADVERTENCIA: Ninguna de las keys de sucursal ('sucursal_id', 'SucursalId', 'sucursalId') existe en el payload del token.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Error al decodificar sucursal_id del JWT: " + ex.Message);
+            }
+            return 0;
+        }
     }
 }
