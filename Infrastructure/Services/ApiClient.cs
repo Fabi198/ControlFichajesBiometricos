@@ -5,6 +5,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 
@@ -286,7 +287,7 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool SincronizarSucursal()
         {
-            System.Diagnostics.Debug.WriteLine("[LOG SYNC] Iniciando SincronizarSucursal()...");
+            System.Diagnostics.Debug.WriteLine("[LOG SYNC] Iniciando SincronizarSucursal() para Agente...");
 
             if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
             {
@@ -296,16 +297,16 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             try
             {
+                // Opcional: Se mantiene la extracción solo para fines de log y diagnóstico,
+                // ya que el nuevo endpoint resuelve la sucursal a partir del token del agente.
                 int sucursalId = ExtraerSucursalIdDeToken(_authToken);
-                System.Diagnostics.Debug.WriteLine($"[LOG SYNC] SucursalId extraído: {sucursalId}");
-
-                if (sucursalId == 0)
+                if (sucursalId > 0)
                 {
-                    System.Diagnostics.Debug.WriteLine("[LOG SYNC] FALLO: El sucursalId es 0 (no se encontró en el token o falló la extracción).");
-                    return false;
+                    System.Diagnostics.Debug.WriteLine($"[LOG SYNC] SucursalId detectado en token de agente: {sucursalId}");
                 }
 
-                string url = $"{_baseUrl}/api/sucursales/{sucursalId}";
+                // Nuevo endpoint específico para agentes autenticados
+                string url = $"{_baseUrl}/api/agentes/sucursal";
                 System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Realizando petición GET a: {url}");
 
                 string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
@@ -325,7 +326,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                             sucursal.SerialLector
                         );
 
-                        System.Diagnostics.Debug.WriteLine($"[LOG API] Sucursal '{sucursal.Nombre}' sincronizada y guardada localmente.");
+                        System.Diagnostics.Debug.WriteLine($"[LOG API] Sucursal '{sucursal.Nombre}' sincronizada y guardada localmente mediante Agente.");
                         return true;
                     }
                     else
@@ -388,6 +389,113 @@ namespace DevsFingerPrint.Infrastructure.Services
                 System.Diagnostics.Debug.WriteLine("Error al decodificar sucursal_id del JWT: " + ex.Message);
             }
             return 0;
+        }
+
+        public bool ValidarSerialLector(string serialLectorFisico)
+        {
+            System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] Iniciando validación de serial del lector físico...");
+
+            serialLectorFisico = serialLectorFisico.Trim('{', '}', ' ', '\r', '\n'); ;
+
+            
+
+
+
+
+
+
+
+
+
+
+
+
+            serialLectorFisico = LimpiarSerial(serialLectorFisico);
+
+
+            if (string.IsNullOrEmpty(serialLectorFisico))
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] FALLO: El serial del lector físico proporcionado está vacío o nulo.");
+                return false;
+            }
+
+            // 1. Obtener el serial guardado en la base de datos local
+            string serialLocal = LimpiarSerial(Data.LocalDatabase.ObtenerSerialLectorLocal());
+            System.Diagnostics.Debug.WriteLine($"[LOG VALIDAR] Serial local recuperado: '{serialLocal ?? "N/A"}'");
+
+            bool coincideLocal = string.Equals(serialLectorFisico, serialLocal, StringComparison.OrdinalIgnoreCase);
+            bool verificacionOnlineExitosa = false;
+
+            // 2. Intentar cotejar contra la API (Remota) con manejo de errores por falta de internet
+            try
+            {
+                string url = $"{_baseUrl}/api/agentes/sucursal";
+                string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
+
+                if (!string.IsNullOrEmpty(jsonResponse))
+                {
+                    SucursalDTO sucursalRemota = JsonConvert.DeserializeObject<SucursalDTO>(jsonResponse);
+                    if (sucursalRemota != null)
+                    {
+                        string serialRemoto = LimpiarSerial(sucursalRemota.SerialLector);
+                        System.Diagnostics.Debug.WriteLine($"[LOG VALIDAR] Serial remoto (API) recuperado: '{serialRemoto ?? "N/A"}'");
+
+
+                        if (!string.IsNullOrEmpty(serialRemoto) && !string.Equals(serialRemoto, serialLocal, StringComparison.OrdinalIgnoreCase))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[LOG SYNC] El serial de la API cambió ('{serialLocal}' -> '{serialRemoto}'). Actualizando base de datos local...");
+
+                            // Reutilizamos el método existente pasando los datos actualizados de la sucursal remota
+                            DevsFingerPrint.Infrastructure.Data.LocalDatabase.GuardarSucursalLocal(
+                                sucursalRemota.Id,
+                                sucursalRemota.Nombre,
+                                sucursalRemota.EmpresaId,
+                                sucursalRemota.SerialLector
+                            );
+                        }
+
+
+                        bool coincideRemoto = string.Equals(serialLectorFisico, serialRemoto, StringComparison.OrdinalIgnoreCase);
+
+                        if (!coincideRemoto)
+                        {
+                            System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] FALLO: El serial físico NO coincide con el registrado en el servidor/API.");
+                            return false;
+                        }
+
+                        verificacionOnlineExitosa = true;
+                        System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] ÉXITO: El serial físico coincide con la API.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Sin internet o caída de red: capturamos la excepción para no romper el flujo
+                System.Diagnostics.Debug.WriteLine($"[LOG VALIDAR] MODO OFFLINE ACTIVADO: No se pudo conectar a la API ({ex.Message}). Cotejando exclusivamente con la base local...");
+            }
+
+            // 3. Si no hubo conexión a la API, recurrimos al respaldo local obligatorio
+            if (!verificacionOnlineExitosa)
+            {
+                if (!coincideLocal)
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] FALLO (Offline): El serial físico tampoco coincide con el registro local.");
+                    return false;
+                }
+
+                System.Diagnostics.Debug.WriteLine("[LOG VALIDAR] ÉXITO (Offline): Validación superada mediante la base de datos local.");
+                return true;
+            }
+
+            return true;
+        }
+
+        private string LimpiarSerial(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return string.Empty;
+
+            // Remueve caracteres nulos (\0), de control, espacios y normaliza a mayúsculas
+            return new string(serial.Where(c => !char.IsControl(c) && c != '\0' && !char.IsWhiteSpace(c)).ToArray()).ToUpper();
         }
     }
 }

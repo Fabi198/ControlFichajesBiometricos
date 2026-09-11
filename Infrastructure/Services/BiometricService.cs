@@ -16,6 +16,7 @@ namespace DevsFingerPrint.Infrastructure.Services
         private List<Fmd> fmdsEnrolamiento;
         private const int CAPTURAS_REQUERIDAS_ENROLAMIENTO = 4;
         public bool listo = false;
+        private readonly ApiClient _apiClient;
 
         // Controla si el servicio debe seguir re-armando la captura después de cada evento.
         // Sin esto, CaptureAsync solo dispara UNA vez y el lector queda "muerto".
@@ -39,8 +40,9 @@ namespace DevsFingerPrint.Infrastructure.Services
         }
         private Action<int> OnProgresoEnrolamientoInternal;
 
-        public BiometricService()
+        public BiometricService(ApiClient apiClient)
         {
+            _apiClient = apiClient;
             fmdsEnrolamiento = new List<Fmd>();
             Debug.WriteLine("[LOG BiometricService] Instancia creada.");
         }
@@ -85,7 +87,23 @@ namespace DevsFingerPrint.Infrastructure.Services
                 }
 
                 lector = listaLectores[0];
-                Debug.WriteLine($"[LOG Biometric] Lector seleccionado: {lector.Description.SerialNumber} - {lector.Description.Name}");
+                string serialFisico = lector.Description.SerialNumber;
+                Debug.WriteLine($"[LOG Biometric] Lector seleccionado: {serialFisico} - {lector.Description.Name}");
+
+                // Validación del serial físico contra la base local y la API
+                if (!_apiClient.ValidarSerialLector(serialFisico))
+                {
+                    Debug.WriteLine("[LOG Biometric ERROR] El serial del lector físico no coincide con el autorizado.");
+                    OnEstadoCambiado?.Invoke("Error de validación: El lector conectado no coincide con el registrado.");
+                    MessageBox.Show(
+                        "El lector biométrico conectado no está autorizado o no coincide con el registrado para esta sucursal.\nLa aplicación se cerrará por seguridad.",
+                        "Dispositivo No Autorizado",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                    Environment.Exit(0);
+                    return false;
+                }
 
                 // 1. Abrir lector en modo compartido/cooperativo
                 Constants.ResultCode resultado = lector.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);

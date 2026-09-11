@@ -29,9 +29,10 @@ namespace DevsFingerPrint.Presentation
             System.Diagnostics.Debug.WriteLine("[LOG MainTray] Inicializando MainTrayContext...");
             LocalDatabase.Inicializar();
 
-            fichadaRepository = new FichadaRepository();
-            biometricService = new BiometricService();
             _apiClient = apiClient;
+            fichadaRepository = new FichadaRepository();
+            biometricService = new BiometricService(_apiClient);
+            
 
             huellasCargadas = new List<Huella>();
 
