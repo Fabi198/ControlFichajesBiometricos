@@ -98,7 +98,7 @@ namespace DevsFingerPrint.Presentation
             pbManos.MouseMove += PbManos_MouseMove;
             pbManos.MouseLeave += PbManos_MouseLeave;
             pbManos.MouseClick += PbManos_MouseClick;
-            pbLogo.Image = Properties.Resources.circularColor.ToBitmap();
+            pbLogo.Image = Properties.Resources.rectangularColor.ToBitmap();
             pbLogo.SizeMode = PictureBoxSizeMode.Zoom;
             pbLogo.BackColor = Color.Transparent;
             panelHuellaContenedor.BorderStyle = BorderStyle.FixedSingle;
@@ -118,10 +118,28 @@ namespace DevsFingerPrint.Presentation
             chkMostrarTodos.ForeColor = Color.White;
             chkMostrarTodos.BackColor = Color.Transparent;
             chkMostrarTodos.CheckedChanged += (s, e) => FiltrarYCargarEmpleados();
-            btnCancelar.BackColor = Color.FromArgb(40, 50, 70); // Tonalidad acorde al diseño oscuro
+
+
+
+
+
+
+            btnCancelar.Text = "Cancelar";
+            btnCancelar.BackColor = ColorBordeInput;
             btnCancelar.ForeColor = Color.White;
             btnCancelar.FlatStyle = FlatStyle.Flat;
-            btnCancelar.FlatAppearance.BorderColor = Color.FromArgb(80, 100, 140);
+            btnCancelar.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            btnCancelar.Cursor = Cursors.Hand;
+
+            
+            btnCancelar.FlatAppearance.BorderSize = 0;
+            btnCancelar.Click += (s, e) => {
+                DetenerCaptura();
+                this.DialogResult = DialogResult.Cancel;
+            };
+
+
+
             panelHuellaContenedor.BorderStyle = BorderStyle.None;
             pbHuella.Location = new Point(
                 (panelHuellaContenedor.Width - pbHuella.Width) / 2,
@@ -658,20 +676,20 @@ namespace DevsFingerPrint.Presentation
         private void InitializeComponent()
         {
             this.cardPanel = new System.Windows.Forms.Panel();
+            this.lblTitulo = new System.Windows.Forms.Label();
             this.btnCancelar = new System.Windows.Forms.Button();
             this.lblInstrucciones = new System.Windows.Forms.Label();
             this.panelHuellaContenedor = new System.Windows.Forms.Panel();
+            this.pbHuella = new System.Windows.Forms.PictureBox();
             this.pbManos = new System.Windows.Forms.PictureBox();
             this.cbEmpleados = new System.Windows.Forms.ComboBox();
             this.chkMostrarTodos = new System.Windows.Forms.CheckBox();
             this.pbLogo = new System.Windows.Forms.PictureBox();
-            this.pbHuella = new System.Windows.Forms.PictureBox();
-            this.lblTitulo = new System.Windows.Forms.Label();
             this.cardPanel.SuspendLayout();
             this.panelHuellaContenedor.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.pbHuella)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbManos)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbLogo)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pbHuella)).BeginInit();
             this.SuspendLayout();
             // 
             // cardPanel
@@ -688,6 +706,17 @@ namespace DevsFingerPrint.Presentation
             this.cardPanel.Name = "cardPanel";
             this.cardPanel.Size = new System.Drawing.Size(460, 601);
             this.cardPanel.TabIndex = 0;
+            // 
+            // lblTitulo
+            // 
+            this.lblTitulo.AutoSize = true;
+            this.lblTitulo.BackColor = System.Drawing.Color.Transparent;
+            this.lblTitulo.Location = new System.Drawing.Point(159, 73);
+            this.lblTitulo.Name = "lblTitulo";
+            this.lblTitulo.Size = new System.Drawing.Size(133, 13);
+            this.lblTitulo.TabIndex = 7;
+            this.lblTitulo.Text = "Enrolamiento de Empleado";
+            this.lblTitulo.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // btnCancelar
             // 
@@ -715,40 +744,6 @@ namespace DevsFingerPrint.Presentation
             this.panelHuellaContenedor.Size = new System.Drawing.Size(76, 100);
             this.panelHuellaContenedor.TabIndex = 4;
             // 
-            // pbManos
-            // 
-            this.pbManos.Location = new System.Drawing.Point(40, 148);
-            this.pbManos.Name = "pbManos";
-            this.pbManos.Size = new System.Drawing.Size(381, 257);
-            this.pbManos.TabIndex = 3;
-            this.pbManos.TabStop = false;
-            // 
-            // cbEmpleados
-            // 
-            this.cbEmpleados.FormattingEnabled = true;
-            this.cbEmpleados.Location = new System.Drawing.Point(82, 121);
-            this.cbEmpleados.Name = "cbEmpleados";
-            this.cbEmpleados.Size = new System.Drawing.Size(306, 21);
-            this.cbEmpleados.TabIndex = 2;
-            // 
-            // chkMostrarTodos
-            // 
-            this.chkMostrarTodos.AutoSize = true;
-            this.chkMostrarTodos.Location = new System.Drawing.Point(82, 98);
-            this.chkMostrarTodos.Name = "chkMostrarTodos";
-            this.chkMostrarTodos.Size = new System.Drawing.Size(167, 17);
-            this.chkMostrarTodos.TabIndex = 1;
-            this.chkMostrarTodos.Text = "Mostrar empleados con huella";
-            this.chkMostrarTodos.UseVisualStyleBackColor = true;
-            // 
-            // pbLogo
-            // 
-            this.pbLogo.Location = new System.Drawing.Point(208, 15);
-            this.pbLogo.Name = "pbLogo";
-            this.pbLogo.Size = new System.Drawing.Size(48, 50);
-            this.pbLogo.TabIndex = 0;
-            this.pbLogo.TabStop = false;
-            // 
             // pbHuella
             // 
             this.pbHuella.Location = new System.Drawing.Point(3, 3);
@@ -757,16 +752,39 @@ namespace DevsFingerPrint.Presentation
             this.pbHuella.TabIndex = 0;
             this.pbHuella.TabStop = false;
             // 
-            // lblTitulo
+            // pbManos
             // 
-            this.lblTitulo.AutoSize = true;
-            this.lblTitulo.BackColor = System.Drawing.Color.Transparent;
-            this.lblTitulo.Location = new System.Drawing.Point(159, 73);
-            this.lblTitulo.Name = "lblTitulo";
-            this.lblTitulo.Size = new System.Drawing.Size(133, 13);
-            this.lblTitulo.TabIndex = 7;
-            this.lblTitulo.Text = "Enrolamiento de Empleado";
-            this.lblTitulo.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.pbManos.Location = new System.Drawing.Point(40, 163);
+            this.pbManos.Name = "pbManos";
+            this.pbManos.Size = new System.Drawing.Size(381, 242);
+            this.pbManos.TabIndex = 3;
+            this.pbManos.TabStop = false;
+            // 
+            // cbEmpleados
+            // 
+            this.cbEmpleados.FormattingEnabled = true;
+            this.cbEmpleados.Location = new System.Drawing.Point(82, 133);
+            this.cbEmpleados.Name = "cbEmpleados";
+            this.cbEmpleados.Size = new System.Drawing.Size(306, 21);
+            this.cbEmpleados.TabIndex = 2;
+            // 
+            // chkMostrarTodos
+            // 
+            this.chkMostrarTodos.AutoSize = true;
+            this.chkMostrarTodos.Location = new System.Drawing.Point(83, 110);
+            this.chkMostrarTodos.Name = "chkMostrarTodos";
+            this.chkMostrarTodos.Size = new System.Drawing.Size(167, 17);
+            this.chkMostrarTodos.TabIndex = 1;
+            this.chkMostrarTodos.Text = "Mostrar empleados con huella";
+            this.chkMostrarTodos.UseVisualStyleBackColor = true;
+            // 
+            // pbLogo
+            // 
+            this.pbLogo.Location = new System.Drawing.Point(162, 15);
+            this.pbLogo.Name = "pbLogo";
+            this.pbLogo.Size = new System.Drawing.Size(130, 50);
+            this.pbLogo.TabIndex = 0;
+            this.pbLogo.TabStop = false;
             // 
             // EnrolarHuellaForm
             // 
@@ -777,9 +795,9 @@ namespace DevsFingerPrint.Presentation
             this.cardPanel.ResumeLayout(false);
             this.cardPanel.PerformLayout();
             this.panelHuellaContenedor.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.pbHuella)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbManos)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbLogo)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pbHuella)).EndInit();
             this.ResumeLayout(false);
 
         }
