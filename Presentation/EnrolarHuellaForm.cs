@@ -686,12 +686,12 @@ namespace DevsFingerPrint.Presentation
             this.cardPanel.Controls.Add(this.pbLogo);
             this.cardPanel.Location = new System.Drawing.Point(12, 12);
             this.cardPanel.Name = "cardPanel";
-            this.cardPanel.Size = new System.Drawing.Size(379, 522);
+            this.cardPanel.Size = new System.Drawing.Size(460, 601);
             this.cardPanel.TabIndex = 0;
             // 
             // btnCancelar
             // 
-            this.btnCancelar.Location = new System.Drawing.Point(271, 479);
+            this.btnCancelar.Location = new System.Drawing.Point(333, 557);
             this.btnCancelar.Name = "btnCancelar";
             this.btnCancelar.Size = new System.Drawing.Size(75, 23);
             this.btnCancelar.TabIndex = 6;
@@ -701,7 +701,7 @@ namespace DevsFingerPrint.Presentation
             // lblInstrucciones
             // 
             this.lblInstrucciones.AutoSize = true;
-            this.lblInstrucciones.Location = new System.Drawing.Point(131, 460);
+            this.lblInstrucciones.Location = new System.Drawing.Point(167, 519);
             this.lblInstrucciones.Name = "lblInstrucciones";
             this.lblInstrucciones.Size = new System.Drawing.Size(35, 13);
             this.lblInstrucciones.TabIndex = 5;
@@ -710,23 +710,23 @@ namespace DevsFingerPrint.Presentation
             // panelHuellaContenedor
             // 
             this.panelHuellaContenedor.Controls.Add(this.pbHuella);
-            this.panelHuellaContenedor.Location = new System.Drawing.Point(155, 352);
+            this.panelHuellaContenedor.Location = new System.Drawing.Point(191, 411);
             this.panelHuellaContenedor.Name = "panelHuellaContenedor";
             this.panelHuellaContenedor.Size = new System.Drawing.Size(76, 100);
             this.panelHuellaContenedor.TabIndex = 4;
             // 
             // pbManos
             // 
-            this.pbManos.Location = new System.Drawing.Point(40, 163);
+            this.pbManos.Location = new System.Drawing.Point(40, 148);
             this.pbManos.Name = "pbManos";
-            this.pbManos.Size = new System.Drawing.Size(306, 183);
+            this.pbManos.Size = new System.Drawing.Size(381, 257);
             this.pbManos.TabIndex = 3;
             this.pbManos.TabStop = false;
             // 
             // cbEmpleados
             // 
             this.cbEmpleados.FormattingEnabled = true;
-            this.cbEmpleados.Location = new System.Drawing.Point(40, 127);
+            this.cbEmpleados.Location = new System.Drawing.Point(82, 121);
             this.cbEmpleados.Name = "cbEmpleados";
             this.cbEmpleados.Size = new System.Drawing.Size(306, 21);
             this.cbEmpleados.TabIndex = 2;
@@ -734,7 +734,7 @@ namespace DevsFingerPrint.Presentation
             // chkMostrarTodos
             // 
             this.chkMostrarTodos.AutoSize = true;
-            this.chkMostrarTodos.Location = new System.Drawing.Point(40, 103);
+            this.chkMostrarTodos.Location = new System.Drawing.Point(82, 98);
             this.chkMostrarTodos.Name = "chkMostrarTodos";
             this.chkMostrarTodos.Size = new System.Drawing.Size(167, 17);
             this.chkMostrarTodos.TabIndex = 1;
@@ -743,7 +743,7 @@ namespace DevsFingerPrint.Presentation
             // 
             // pbLogo
             // 
-            this.pbLogo.Location = new System.Drawing.Point(172, 16);
+            this.pbLogo.Location = new System.Drawing.Point(208, 15);
             this.pbLogo.Name = "pbLogo";
             this.pbLogo.Size = new System.Drawing.Size(48, 50);
             this.pbLogo.TabIndex = 0;
@@ -761,7 +761,7 @@ namespace DevsFingerPrint.Presentation
             // 
             this.lblTitulo.AutoSize = true;
             this.lblTitulo.BackColor = System.Drawing.Color.Transparent;
-            this.lblTitulo.Location = new System.Drawing.Point(123, 74);
+            this.lblTitulo.Location = new System.Drawing.Point(159, 73);
             this.lblTitulo.Name = "lblTitulo";
             this.lblTitulo.Size = new System.Drawing.Size(133, 13);
             this.lblTitulo.TabIndex = 7;
@@ -770,7 +770,7 @@ namespace DevsFingerPrint.Presentation
             // 
             // EnrolarHuellaForm
             // 
-            this.ClientSize = new System.Drawing.Size(403, 546);
+            this.ClientSize = new System.Drawing.Size(599, 717);
             this.Controls.Add(this.cardPanel);
             this.Name = "EnrolarHuellaForm";
             this.Load += new System.EventHandler(this.EnrolarHuellaForm_Load);
