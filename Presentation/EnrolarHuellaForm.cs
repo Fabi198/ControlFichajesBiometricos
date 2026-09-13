@@ -3,6 +3,7 @@ using DPUruNet;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -13,129 +14,231 @@ namespace DevsFingerPrint.Presentation
         private Reader _reader;
         private List<Fmd> _enrollmentFmds;
 
-        // Propiedades para devolver la información al formulario principal
         public Huella HuellaCapturada { get; private set; }
         public int EmpleadoIdSeleccionado { get; private set; }
         public int IndiceDedoSeleccionado { get; private set; }
+
+        // Colores idénticos a FormLogin
+        private readonly Color ColorFondo = Color.FromArgb(10, 15, 29);       // Oscuro profundo
+        private readonly Color ColorCard = Color.FromArgb(18, 26, 46);        // Tarjeta contenedora
+        private readonly Color ColorBordeInput = Color.FromArgb(35, 48, 74);  // Borde de controles
+        private readonly Color ColorAzul = Color.FromArgb(24, 103, 255);      // Azul vibrante
+        private readonly Color ColorTextoSub = Color.FromArgb(140, 155, 185);  // Gris texto secundario
 
         // Controles de UI
         private ComboBox cbEmpleados;
         private ComboBox cbDedos;
         private Label lblInstrucciones;
         private PictureBox pbHuella;
-        private Button btnCancelar;
         private Button btnSimular;
+        private Button btnCancelar;
 
         public EnrolarHuellaForm(Reader reader, IEnumerable<Empleado> listaEmpleados)
         {
             _reader = reader;
-            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Constructor iniciado.");
-
-            InicializarComponentes();
+            ConfigurarVentana();
+            CrearControles();
             CargarEmpleados(listaEmpleados);
             CargarDedos();
             IniciarSecuenciaEnrolamiento();
         }
 
-        private void InicializarComponentes()
+        private void ConfigurarVentana()
         {
-            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Inicializando componentes de UI...");
-            this.Text = "Enrolar Nueva Huella - U.are.U 4500";
-            this.Size = new Size(380, 520);
+            this.Text = "Enrolamiento Biométrico";
+            this.Size = new Size(420, 560);
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
+            this.BackColor = ColorFondo;
+            this.DoubleBuffered = true;
+        }
 
-            // Panel Superior con Selectores
-            Panel pnlSelectores = new Panel
+        private void CrearControles()
+        {
+            // Panel Tarjeta principal
+            Panel cardPanel = new Panel
             {
-                Dock = DockStyle.Top,
-                Height = 110,
-                Padding = new Padding(10)
+                Size = new Size(340, 350),
+                Location = new Point((this.ClientSize.Width - 340) / 2, 130),
+                BackColor = Color.Transparent
+            };
+            cardPanel.Paint += CardPanel_Paint;
+
+            // Label: Empleado
+            Label lblEmpleado = new Label
+            {
+                Text = "Empleado",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(20, 20),
+                AutoSize = true
             };
 
-            Label lblEmpleado = new Label { Text = "Empleado:", Location = new Point(10, 12), AutoSize = true };
+            // Input: Empleado ComboBox
             cbEmpleados = new ComboBox
             {
-                Location = new Point(100, 8),
-                Width = 240,
-                DropDownStyle = ComboBoxStyle.DropDownList
+                Location = new Point(20, 42),
+                Size = new Size(300, 30),
+                BackColor = ColorFondo,
+                ForeColor = Color.White,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9.5f)
             };
 
-            Label lblDedo = new Label { Text = "Dedo:", Location = new Point(10, 47), AutoSize = true };
+            // Label: Dedo
+            Label lblDedo = new Label
+            {
+                Text = "Dedo a Enrolar",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(20, 80),
+                AutoSize = true
+            };
+
+            // Input: Dedo ComboBox
             cbDedos = new ComboBox
             {
-                Location = new Point(100, 44),
-                Width = 240,
-                DropDownStyle = ComboBoxStyle.DropDownList
+                Location = new Point(20, 102),
+                Size = new Size(300, 30),
+                BackColor = ColorFondo,
+                ForeColor = Color.White,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9.5f)
             };
 
+            // PictureBox para previsualización de huella integrado en la tarjeta
+            pbHuella = new PictureBox
+            {
+                Location = new Point(135, 145),
+                Size = new Size(70, 70),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = ColorFondo
+            };
+
+            // Label: Instrucciones dinámicas
             lblInstrucciones = new Label
             {
                 Text = "Coloque el dedo en el lector (Muestra 1 de 4)",
-                Location = new Point(10, 80),
-                Size = new Size(340, 25),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold)
+                ForeColor = ColorTextoSub,
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                Location = new Point(20, 225),
+                Size = new Size(300, 20),
+                TextAlign = ContentAlignment.MiddleCenter
             };
 
-            pnlSelectores.Controls.Add(lblEmpleado);
-            pnlSelectores.Controls.Add(cbEmpleados);
-            pnlSelectores.Controls.Add(lblDedo);
-            pnlSelectores.Controls.Add(cbDedos);
-            pnlSelectores.Controls.Add(lblInstrucciones);
-
-            // PictureBox central para previsualización
-            pbHuella = new PictureBox
-            {
-                Dock = DockStyle.Fill,
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.Black
-            };
-
-            // Panel Inferior para Botones
-            Panel pnlBotones = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 50,
-                Padding = new Padding(8)
-            };
-
+            // Botón: Simular
             btnSimular = new Button
             {
-                Text = "🧪 Simular Huella",
-                Dock = DockStyle.Left,
-                Width = 160,
-                BackColor = Color.LightSkyBlue,
-                FlatStyle = FlatStyle.Flat
+                Text = "Simular Huella",
+                Location = new Point(20, 255),
+                Size = new Size(142, 36),
+                BackColor = ColorBordeInput,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Cursor = Cursors.Hand
             };
+            btnSimular.FlatAppearance.BorderSize = 0;
             btnSimular.Click += btnSimularLectura_Click;
 
+            // Botón: Cancelar
             btnCancelar = new Button
             {
                 Text = "Cancelar",
-                Dock = DockStyle.Right,
-                Width = 160
+                Location = new Point(178, 255),
+                Size = new Size(142, 36),
+                BackColor = ColorBordeInput,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Cursor = Cursors.Hand
             };
+            btnCancelar.FlatAppearance.BorderSize = 0;
             btnCancelar.Click += (s, e) => {
-                System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Clic en botón Cancelar.");
                 DetenerCaptura();
                 this.DialogResult = DialogResult.Cancel;
             };
 
-            pnlBotones.Controls.Add(btnSimular);
-            pnlBotones.Controls.Add(btnCancelar);
+            cardPanel.Controls.Add(lblEmpleado);
+            cardPanel.Controls.Add(cbEmpleados);
+            cardPanel.Controls.Add(lblDedo);
+            cardPanel.Controls.Add(cbDedos);
+            cardPanel.Controls.Add(pbHuella);
+            cardPanel.Controls.Add(lblInstrucciones);
+            cardPanel.Controls.Add(btnSimular);
+            cardPanel.Controls.Add(btnCancelar);
 
-            this.Controls.Add(pbHuella);
-            this.Controls.Add(pnlSelectores);
-            this.Controls.Add(pnlBotones);
+            this.Controls.Add(cardPanel);
 
             this.FormClosing += (s, e) => {
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] FormClosing disparado. CloseReason: {e.CloseReason}");
                 DetenerCaptura();
             };
+        }
 
-            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Componentes de UI inicializados correctamente.");
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            // 1. Badge superior "FP" redondeado
+            int iconSize = 48;
+            int iconX = (this.ClientSize.Width - iconSize) / 2;
+            int iconY = 25;
+            Rectangle iconRect = new Rectangle(iconX, iconY, iconSize, iconSize);
+
+            using (GraphicsPath path = ObtenerRutaRedondeada(iconRect, 12))
+            using (SolidBrush brush = new SolidBrush(ColorAzul))
+            {
+                g.FillPath(brush, path);
+            }
+
+            using (Font fontBadge = new Font("Segoe UI", 12f, FontStyle.Bold))
+            using (SolidBrush textBrush = new SolidBrush(Color.White))
+            {
+                StringFormat sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center
+                };
+                g.DrawString("FP", fontBadge, textBrush, iconRect, sf);
+            }
+
+            // 2. Titular
+            using (Font fontTitulo = new Font("Segoe UI", 14f, FontStyle.Bold))
+            using (SolidBrush brushTitulo = new SolidBrush(Color.White))
+            {
+                StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
+                g.DrawString("Registro de Huella", fontTitulo, brushTitulo, new PointF(this.ClientSize.Width / 2, 82), sf);
+            }
+        }
+
+        private void CardPanel_Paint(object sender, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Rectangle rect = new Rectangle(0, 0, 340 - 1, 350 - 1);
+            using (GraphicsPath path = ObtenerRutaRedondeada(rect, 16))
+            using (SolidBrush brush = new SolidBrush(ColorCard))
+            using (Pen pen = new Pen(ColorBordeInput, 1))
+            {
+                g.FillPath(brush, path);
+                g.DrawPath(pen, path);
+            }
+        }
+
+        private GraphicsPath ObtenerRutaRedondeada(Rectangle rect, int radio)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int d = radio * 2;
+            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
 
         private void CargarEmpleados(IEnumerable<Empleado> empleados)
@@ -143,26 +246,23 @@ namespace DevsFingerPrint.Presentation
             if (empleados != null)
             {
                 var lista = new List<Empleado>(empleados);
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Cargando {lista.Count} empleados en el ComboBox...");
                 cbEmpleados.DisplayMember = "NombreCompleto";
                 cbEmpleados.ValueMember = "Id";
                 cbEmpleados.DataSource = lista;
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Empleados cargados. Seleccionado: {cbEmpleados.SelectedValue}");
             }
         }
 
         private void CargarDedos()
         {
-            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Cargando lista de dedos en el ComboBox...");
             var listaDedos = new[]
             {
                 new { Id = 1, Nombre = "Pulgar Derecho" },
-                new { Id = 2, Nombre = "Indice Derecho" },
+                new { Id = 2, Nombre = "Índice Derecho" },
                 new { Id = 3, Nombre = "Medio Derecho" },
                 new { Id = 4, Nombre = "Anular Derecho" },
                 new { Id = 5, Nombre = "Meñique Derecho" },
                 new { Id = 6, Nombre = "Pulgar Izquierdo" },
-                new { Id = 7, Nombre = "Indice Izquierdo" },
+                new { Id = 7, Nombre = "Índice Izquierdo" },
                 new { Id = 8, Nombre = "Medio Izquierdo" },
                 new { Id = 9, Nombre = "Anular Izquierdo" },
                 new { Id = 10, Nombre = "Meñique Izquierdo" }
@@ -175,8 +275,6 @@ namespace DevsFingerPrint.Presentation
 
         private bool ValidarSelecciones()
         {
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Validando selecciones -> Empleado: {cbEmpleados.SelectedValue}, Dedo: {cbDedos.SelectedValue}");
-
             if (cbEmpleados.SelectedValue == null)
             {
                 MessageBox.Show("Por favor, seleccione un empleado.", "Atención", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -194,33 +292,20 @@ namespace DevsFingerPrint.Presentation
 
         private void IniciarSecuenciaEnrolamiento()
         {
-            if (_reader == null)
-            {
-                System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] ERROR CRÍTICO: La instancia de _reader recibida es NULL.");
-                return;
-            }
+            if (_reader == null) return;
 
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Iniciando enrolamiento con lector Serial: {_reader.Description.SerialNumber}");
             _enrollmentFmds = new List<Fmd>();
-
             _reader.On_Captured += Reader_OnCaptured;
 
             Constants.ResultCode resOpen = _reader.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Resultado de Open (EXCLUSIVE): {resOpen}");
-
             if (resOpen != Constants.ResultCode.DP_SUCCESS)
             {
                 resOpen = _reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Resultado de Open (COOPERATIVE): {resOpen}");
             }
 
             if (resOpen == Constants.ResultCode.DP_SUCCESS)
             {
                 SolicitarSiguienteMuestra();
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] ERROR: No se pudo abrir el lector. ResultCode: {resOpen}");
             }
         }
 
@@ -228,28 +313,21 @@ namespace DevsFingerPrint.Presentation
         {
             if (_reader != null)
             {
-                System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Ejecutando CaptureAsync...");
-                Constants.ResultCode resCapture = _reader.CaptureAsync(
+                _reader.CaptureAsync(
                     Constants.Formats.Fid.ANSI,
                     Constants.CaptureProcessing.DP_IMG_PROC_DEFAULT,
                     _reader.Capabilities.Resolutions[0]);
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Resultado de CaptureAsync: {resCapture}");
             }
         }
 
         private void Reader_OnCaptured(CaptureResult captureResult)
         {
-            System.Diagnostics.Debug.WriteLine($"\n[LOG EnrolarForm] --- Evento Reader_OnCaptured Disparado ---");
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] ResultCode: {captureResult.ResultCode}, Quality: {captureResult.Quality}");
-
             if (captureResult.ResultCode != Constants.ResultCode.DP_SUCCESS || captureResult.Data == null)
             {
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Captura desestimada por ResultCode inválido o Data nula.");
                 SolicitarSiguienteMuestra();
                 return;
             }
 
-            // Actualizar vista previa de forma asíncrona
             this.BeginInvoke(new Action(() =>
             {
                 foreach (Fid.Fiv fiv in captureResult.Data.Views)
@@ -261,31 +339,25 @@ namespace DevsFingerPrint.Presentation
                 }
             }));
 
-            // Convertir a FMD utilizando el formato ANSI
             DataResult<Fmd> resultConversion = FeatureExtraction.CreateFmdFromFid(captureResult.Data, Constants.Formats.Fmd.ANSI);
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Resultado conversión FID -> FMD: {resultConversion.ResultCode}");
 
             if (resultConversion.ResultCode == Constants.ResultCode.DP_SUCCESS)
             {
                 _enrollmentFmds.Add(resultConversion.Data);
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Muestra guardada. Total muestras actuales: {_enrollmentFmds.Count} / 4");
 
                 this.BeginInvoke(new Action(() =>
                 {
-                    lblInstrucciones.Text = $"Muestra registrada ({_enrollmentFmds.Count} de 4). Vuelva a apoyar.";
+                    lblInstrucciones.Text = $"Muestra registrada ({_enrollmentFmds.Count} de 4)";
                 }));
 
                 if (_enrollmentFmds.Count >= 4)
                 {
-                    System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Muestras suficientes (4/4). Generando plantilla final...");
                     DataResult<Fmd> createResult = Enrollment.CreateEnrollmentFmd(Constants.Formats.Fmd.ANSI, _enrollmentFmds);
-                    System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Resultado de CreateEnrollmentFmd: {createResult.ResultCode}");
 
                     if (createResult.ResultCode == Constants.ResultCode.DP_SUCCESS)
                     {
                         this.BeginInvoke(new Action(() =>
                         {
-                            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Enrolamiento exitoso. Validando selecciones...");
                             if (!ValidarSelecciones())
                             {
                                 _enrollmentFmds.Clear();
@@ -296,8 +368,6 @@ namespace DevsFingerPrint.Presentation
 
                             int empId = Convert.ToInt32(cbEmpleados.SelectedValue);
                             int dedoId = Convert.ToInt32(cbDedos.SelectedValue);
-
-                            // Obtener los bytes directamente desde la propiedad Bytes del FMD generado
                             byte[] fmdBytes = createResult.Data.Bytes;
 
                             if (fmdBytes != null && fmdBytes.Length > 0)
@@ -313,8 +383,6 @@ namespace DevsFingerPrint.Presentation
                                     IndiceDedo = dedoId,
                                     TemplateBiometrico = templateBase64
                                 };
-
-                                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Huella compilada y asignada. EmpleadoId: {empId}, DedoId: {dedoId}");
 
                                 ThreadPool.QueueUserWorkItem(_ =>
                                 {
@@ -338,10 +406,9 @@ namespace DevsFingerPrint.Presentation
                     }
                     else
                     {
-                        System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] ERROR: Falló CreateEnrollmentFmd: {createResult.ResultCode}");
                         this.BeginInvoke(new Action(() =>
                         {
-                            MessageBox.Show("No se pudo compilar la plantilla (huellas disímiles). Intente nuevamente.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            MessageBox.Show("No se pudo compilar la plantilla. Intente nuevamente.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                             _enrollmentFmds.Clear();
                             lblInstrucciones.Text = "Coloque el dedo en el lector (Muestra 1 de 4)";
                             SolicitarSiguienteMuestra();
@@ -355,7 +422,6 @@ namespace DevsFingerPrint.Presentation
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] ERROR al extraer características de la muestra: {resultConversion.ResultCode}");
                 SolicitarSiguienteMuestra();
             }
         }
@@ -364,18 +430,13 @@ namespace DevsFingerPrint.Presentation
         {
             if (_reader != null)
             {
-                System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Ejecutando DetenerCaptura()...");
                 try
                 {
                     _reader.On_Captured -= Reader_OnCaptured;
                     _reader.CancelCapture();
                     _reader.Dispose();
-                    System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Lector detenido y cerrado correctamente.");
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Excepción en DetenerCaptura: {ex.Message}");
-                }
+                catch { }
             }
         }
 
@@ -399,8 +460,6 @@ namespace DevsFingerPrint.Presentation
 
         private void btnSimularLectura_Click(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Clic en botón Simular Huella.");
-
             if (!ValidarSelecciones())
                 return;
 
@@ -412,7 +471,6 @@ namespace DevsFingerPrint.Presentation
                 {
                     int empId = Convert.ToInt32(cbEmpleados.SelectedValue);
                     int dedoId = Convert.ToInt32(cbDedos.SelectedValue);
-
                     string fakeTemplateBase64 = "<FMD><Bytes>AQAAAFQAAABM...</Bytes></FMD>";
 
                     EmpleadoIdSeleccionado = empId;

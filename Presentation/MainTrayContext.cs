@@ -48,7 +48,7 @@ namespace DevsFingerPrint.Presentation
 
             notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = Properties.Resources.circularColor,
                 ContextMenuStrip = contextMenu,
                 Visible = true,
                 Text = "DevsFingerPrint - Control de Fichajes"
