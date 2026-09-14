@@ -81,42 +81,12 @@ namespace DevsFingerPrint.Properties {
         }
         
         /// <summary>
-        ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
+        ///   Busca un recurso adaptado de tipo System.Byte[].
         /// </summary>
-        internal static System.Drawing.Bitmap huella01 {
+        internal static byte[] fingerPrintAnimated {
             get {
-                object obj = ResourceManager.GetObject("huella01", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-        
-        /// <summary>
-        ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap huella02 {
-            get {
-                object obj = ResourceManager.GetObject("huella02", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-        
-        /// <summary>
-        ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap huella03 {
-            get {
-                object obj = ResourceManager.GetObject("huella03", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-        
-        /// <summary>
-        ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap huella04 {
-            get {
-                object obj = ResourceManager.GetObject("huella04", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
+                object obj = ResourceManager.GetObject("fingerPrintAnimated", resourceCulture);
+                return ((byte[])(obj));
             }
         }
         
