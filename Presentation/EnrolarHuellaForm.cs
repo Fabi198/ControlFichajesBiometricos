@@ -15,20 +15,23 @@ namespace DevsFingerPrint.Presentation
     {
 
 
+        private int pasoSimulado = 0;
+
+
+
+
+
+
+
+
+
+
+
         private System.Windows.Forms.Timer timerDuracionGif = new System.Windows.Forms.Timer();
         private Image gifActualEnUso = null;
 
         private int frameActualContador = 0;
         private int frameLimiteMaximo = 0;
-
-
-
-
-
-
-
-
-
 
         private Reader _reader;
         private List<Fmd> _enrollmentFmds;
@@ -58,7 +61,8 @@ namespace DevsFingerPrint.Presentation
         private PictureBox pbHuellaAnim;
         private int muestraActual = 0;
         private Label lblInstrucciones;
-
+        private Button btnSimularExito;
+        private Button btnSimularError;
 
         // Coordenadas originales para el tamaño estándar de la imagen de manos (360x135)
         private readonly Dictionary<int, Rectangle> zonasDedosOriginales = new Dictionary<int, Rectangle>
@@ -104,8 +108,7 @@ namespace DevsFingerPrint.Presentation
             pbLogo.Image = Properties.Resources.rectangularColor.ToBitmap();
             pbLogo.SizeMode = PictureBoxSizeMode.Zoom;
             pbLogo.BackColor = Color.Transparent;
-            //panelHuellaContenedor.BorderStyle = BorderStyle.FixedSingle;
-            //pbHuella.SizeMode = PictureBoxSizeMode.Zoom;
+
             lblInstrucciones.ForeColor = Color.White;
             lblInstrucciones.BackColor = Color.Transparent;
             lblInstrucciones.Text = "Muestra registrada (1 de 4)";
@@ -127,7 +130,6 @@ namespace DevsFingerPrint.Presentation
             pbHuellaAnim.SizeMode = PictureBoxSizeMode.CenterImage;
             pbHuellaAnim.BackColor = ColorCard;
 
-            // Iniciar con la primera parte del GIF o limpio (aquí puedes asignar huella01 si prefieres que arranque lleno el paso 1)
             ActualizarProgresoHuella(0);
 
             btnCancelar.Text = "Cancelar";
@@ -141,12 +143,6 @@ namespace DevsFingerPrint.Presentation
                 DetenerCaptura();
                 this.DialogResult = DialogResult.Cancel;
             };
-
-            //panelHuellaContenedor.BorderStyle = BorderStyle.None;
-            //pbHuella.Location = new Point(
-            //    (panelHuellaContenedor.Width - pbHuella.Width) / 2,
-            //    (panelHuellaContenedor.Height - pbHuella.Height) / 2
-            //);
 
             ConfigurarVentana();
             FiltrarYCargarEmpleados();
@@ -163,16 +159,6 @@ namespace DevsFingerPrint.Presentation
             this.BackColor = ColorFondo;
             this.DoubleBuffered = true;
         }
-
-        /*
-        private void PanelHuella_Paint(object sender, PaintEventArgs e)
-        {
-            using (Pen pen = new Pen(Color.FromArgb(80, 140, 255), 2))
-            {
-                e.Graphics.DrawRectangle(pen, 0, 0, panelHuellaContenedor.Width - 1, panelHuellaContenedor.Height - 1);
-            }
-        }
-        */
 
         private Bitmap ObtenerImagenSinFondo(Bitmap original)
         {
@@ -378,19 +364,6 @@ namespace DevsFingerPrint.Presentation
                 return;
             }
 
-            /*
-            this.BeginInvoke(new Action(() =>
-            {
-                foreach (Fid.Fiv fiv in captureResult.Data.Views)
-                {
-                    Bitmap oldBmp = pbHuella.Image as Bitmap;
-                    pbHuella.Image = CrearBitmap(fiv.RawImage, fiv.Width, fiv.Height);
-                    if (oldBmp != null) oldBmp.Dispose();
-                    break;
-                }
-            }));
-            */
-
             DataResult<Fmd> resultConversion = FeatureExtraction.CreateFmdFromFid(captureResult.Data, Constants.Formats.Fmd.ANSI);
 
             if (resultConversion.ResultCode == Constants.ResultCode.DP_SUCCESS)
@@ -477,6 +450,13 @@ namespace DevsFingerPrint.Presentation
             }
             else
             {
+                // Ejemplo opcional para disparar el error huella05 si la conversión de feature falla:
+                this.BeginInvoke(new Action(() =>
+                {
+                    ActualizarProgresoHuella(5); // Caso de error 5 (huella05)
+                    lblInstrucciones.Text = "Lectura incorrecta. Intente nuevamente.";
+                }));
+
                 SolicitarSiguienteMuestra();
             }
         }
@@ -515,6 +495,9 @@ namespace DevsFingerPrint.Presentation
         private void InitializeComponent()
         {
             this.cardPanel = new System.Windows.Forms.Panel();
+            this.btnSimularError = new System.Windows.Forms.Button();
+            this.btnSimularExito = new System.Windows.Forms.Button();
+            this.lblInstrucciones = new System.Windows.Forms.Label();
             this.pbHuellaAnim = new System.Windows.Forms.PictureBox();
             this.lblTitulo = new System.Windows.Forms.Label();
             this.btnCancelar = new System.Windows.Forms.Button();
@@ -522,7 +505,6 @@ namespace DevsFingerPrint.Presentation
             this.cbEmpleados = new System.Windows.Forms.ComboBox();
             this.chkMostrarTodos = new System.Windows.Forms.CheckBox();
             this.pbLogo = new System.Windows.Forms.PictureBox();
-            this.lblInstrucciones = new System.Windows.Forms.Label();
             this.cardPanel.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbHuellaAnim)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbManos)).BeginInit();
@@ -531,6 +513,8 @@ namespace DevsFingerPrint.Presentation
             // 
             // cardPanel
             // 
+            this.cardPanel.Controls.Add(this.btnSimularError);
+            this.cardPanel.Controls.Add(this.btnSimularExito);
             this.cardPanel.Controls.Add(this.lblInstrucciones);
             this.cardPanel.Controls.Add(this.pbHuellaAnim);
             this.cardPanel.Controls.Add(this.lblTitulo);
@@ -543,6 +527,35 @@ namespace DevsFingerPrint.Presentation
             this.cardPanel.Name = "cardPanel";
             this.cardPanel.Size = new System.Drawing.Size(460, 601);
             this.cardPanel.TabIndex = 0;
+            // 
+            // btnSimularError
+            // 
+            this.btnSimularError.Location = new System.Drawing.Point(40, 442);
+            this.btnSimularError.Name = "btnSimularError";
+            this.btnSimularError.Size = new System.Drawing.Size(75, 23);
+            this.btnSimularError.TabIndex = 10;
+            this.btnSimularError.Text = "SimularError";
+            this.btnSimularError.UseVisualStyleBackColor = true;
+            this.btnSimularError.Click += new System.EventHandler(this.btnSimularError_Click_1);
+            // 
+            // btnSimularExito
+            // 
+            this.btnSimularExito.Location = new System.Drawing.Point(40, 412);
+            this.btnSimularExito.Name = "btnSimularExito";
+            this.btnSimularExito.Size = new System.Drawing.Size(75, 23);
+            this.btnSimularExito.TabIndex = 9;
+            this.btnSimularExito.Text = "SimularExito";
+            this.btnSimularExito.UseVisualStyleBackColor = true;
+            this.btnSimularExito.Click += new System.EventHandler(this.btnSimularExito_Click_1);
+            // 
+            // lblInstrucciones
+            // 
+            this.lblInstrucciones.AutoSize = true;
+            this.lblInstrucciones.Location = new System.Drawing.Point(215, 412);
+            this.lblInstrucciones.Name = "lblInstrucciones";
+            this.lblInstrucciones.Size = new System.Drawing.Size(35, 13);
+            this.lblInstrucciones.TabIndex = 5;
+            this.lblInstrucciones.Text = "label1";
             // 
             // pbHuellaAnim
             // 
@@ -606,15 +619,6 @@ namespace DevsFingerPrint.Presentation
             this.pbLogo.TabIndex = 0;
             this.pbLogo.TabStop = false;
             // 
-            // lblInstrucciones
-            // 
-            this.lblInstrucciones.AutoSize = true;
-            this.lblInstrucciones.Location = new System.Drawing.Point(215, 412);
-            this.lblInstrucciones.Name = "lblInstrucciones";
-            this.lblInstrucciones.Size = new System.Drawing.Size(35, 13);
-            this.lblInstrucciones.TabIndex = 5;
-            this.lblInstrucciones.Text = "label1";
-            // 
             // EnrolarHuellaForm
             // 
             this.ClientSize = new System.Drawing.Size(599, 717);
@@ -634,22 +638,17 @@ namespace DevsFingerPrint.Presentation
         {
             cardPanel.Left = (this.ClientSize.Width - cardPanel.Width) / 2;
             muestraActual = 0;
-            //pbHuella.Image = null;
 
-            // En el constructor o en EnrolarHuellaForm_Load:
             timerDuracionGif.Tick += (s, ev) =>
             {
                 timerDuracionGif.Stop();
 
-                // Cuando se cumple el tiempo exacto del GIF, detenemos la animación 
-                // y lo dejamos congelado en su último fotograma de forma forzada.
                 if (gifActualEnUso != null)
                 {
                     try
                     {
                         ImageAnimator.StopAnimate(gifActualEnUso, OnFrameChanged);
 
-                        // Forzamos el último fotograma disponible
                         Guid idDimension = FrameDimension.Time.Guid;
                         int totalFrames = gifActualEnUso.GetFrameCount(new FrameDimension(idDimension));
                         gifActualEnUso.SelectActiveFrame(new FrameDimension(idDimension), totalFrames - 1);
@@ -663,30 +662,34 @@ namespace DevsFingerPrint.Presentation
 
         private void ActualizarProgresoHuella(int muestra)
         {
-            // 1. Detener animación previa
+            // 1. Detener animación previa de forma segura
             if (gifActualEnUso != null)
             {
                 try { ImageAnimator.StopAnimate(gifActualEnUso, OnFrameChanged); } catch { }
             }
 
-            // 2. Asignar recurso y configurar cuántos fotogramas exactos debe reproducir este tramo
+            // 2. Asignar recurso y configurar el límite de fotogramas según el tramo o error
             switch (muestra)
             {
                 case 1:
                     gifActualEnUso = Properties.Resources.huella01;
-                    frameLimiteMaximo = 9;  // Del 01 al 09
+                    frameLimiteMaximo = 9;
                     break;
                 case 2:
                     gifActualEnUso = Properties.Resources.huella02;
-                    frameLimiteMaximo = 3;  // Del 09 al 12 (3 saltos de fotograma)
+                    frameLimiteMaximo = 3;
                     break;
                 case 3:
                     gifActualEnUso = Properties.Resources.huella03;
-                    frameLimiteMaximo = 5;  // Del 12 al 17 (5 saltos de fotograma)
+                    frameLimiteMaximo = 5;
                     break;
                 case 4:
                     gifActualEnUso = Properties.Resources.huella04;
-                    frameLimiteMaximo = 145; // Del 17 al 61 (44 saltos de fotograma)
+                    frameLimiteMaximo = 145;
+                    break;
+                case 5: // NUEVO CASO: Error / Lectura incorrecta (huella05)
+                    gifActualEnUso = Properties.Resources.huella05;
+                    frameLimiteMaximo = 145; // Ajusta este límite según los frames de tu huella05
                     break;
                 default:
                     pbHuellaAnim.Image = null;
@@ -694,10 +697,21 @@ namespace DevsFingerPrint.Presentation
                     return;
             }
 
+            // 3. Forzar de manera estricta el reseteo del GIF al primer fotograma (índice 0)
+            if (gifActualEnUso != null)
+            {
+                try
+                {
+                    FrameDimension dimension = new FrameDimension(gifActualEnUso.FrameDimensionsList[0]);
+                    gifActualEnUso.SelectActiveFrame(dimension, 0);
+                }
+                catch { }
+            }
+
             frameActualContador = 0;
             pbHuellaAnim.Image = gifActualEnUso;
 
-            // 3. Arrancar la animación por fotogramas controlados
+            // 4. Iniciar la animación mediante ImageAnimator si es apto
             if (gifActualEnUso != null && ImageAnimator.CanAnimate(gifActualEnUso))
             {
                 ImageAnimator.Animate(gifActualEnUso, OnFrameChanged);
@@ -716,15 +730,13 @@ namespace DevsFingerPrint.Presentation
             ImageAnimator.UpdateFrames(gifActualEnUso);
             frameActualContador++;
 
-            // Si alcanzamos exactamente el límite de fotogramas de este tramo:
+            // Si alcanzamos el límite de fotogramas configurado para este tramo:
             if (frameActualContador >= frameLimiteMaximo)
             {
-                // Detenemos el motor de animación de inmediato
                 ImageAnimator.StopAnimate(gifActualEnUso, OnFrameChanged);
 
                 try
                 {
-                    // Forzamos al objeto a posicionarse en su fotograma final absoluto
                     FrameDimension dimension = new FrameDimension(gifActualEnUso.FrameDimensionsList[0]);
                     int totalFramesTotales = gifActualEnUso.GetFrameCount(dimension);
                     gifActualEnUso.SelectActiveFrame(dimension, totalFramesTotales - 1);
@@ -733,6 +745,57 @@ namespace DevsFingerPrint.Presentation
             }
 
             pbHuellaAnim.Invalidate();
+        }
+
+
+
+
+
+
+
+
+
+
+
+        
+
+        // --- BOTÓN 2: El usuario "apoyó mal el dedo o se movió" ---
+       
+        private void btnSimularError_Click_1(object sender, EventArgs e)
+        {
+            // Dispara el error (huella05) sin importar en qué paso esté (1, 2 o 3)
+            ActualizarProgresoHuella(5);
+            lblInstrucciones.Text = "Lectura incorrecta. Intente nuevamente.";
+
+            // Opcional: si quieres que tras el error el usuario pueda reintentar 
+            // y volver al paso en el que iba, puedes mantener el 'pasoSimulado' intacto.
+        }
+
+        private void btnSimularExito_Click_1(object sender, EventArgs e)
+        {
+            if (pasoSimulado < 3)
+            {
+                // Primeros 3 pasos (usan la misma animación/muestra base)
+                pasoSimulado++;
+                ActualizarProgresoHuella(pasoSimulado); // Muestra 1, 2 o 3
+                lblInstrucciones.Text = $"Muestra registrada ({pasoSimulado} de 4)";
+            }
+            else if (pasoSimulado == 3)
+            {
+                // El 4to intento sale bien -> Éxito total
+                pasoSimulado = 4;
+                ActualizarProgresoHuella(4); // Llama al GIF de éxito (huella04)
+                lblInstrucciones.Text = "¡Enrolamiento completado con éxito!";
+
+                // Opcional: simular el cierre guardando datos de prueba tras 1 segundo
+                System.Windows.Forms.Timer t = new System.Windows.Forms.Timer { Interval = 1500 };
+                t.Tick += (s2, ev2) => {
+                    t.Stop();
+                    this.DialogResult = DialogResult.OK;
+                    this.Close();
+                };
+                t.Start();
+            }
         }
     }
 }

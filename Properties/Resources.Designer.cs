@@ -123,6 +123,16 @@ namespace DevsFingerPrint.Properties {
         /// <summary>
         ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
         /// </summary>
+        internal static System.Drawing.Bitmap huella05 {
+            get {
+                object obj = ResourceManager.GetObject("huella05", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Busca un recurso adaptado de tipo System.Drawing.Bitmap.
+        /// </summary>
         internal static System.Drawing.Bitmap manos_vector {
             get {
                 object obj = ResourceManager.GetObject("manos_vector", resourceCulture);

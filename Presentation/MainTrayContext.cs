@@ -339,6 +339,7 @@ namespace DevsFingerPrint.Presentation
                 ReaderCollection readers = ReaderCollection.GetReaders();
                 Reader lectorFisico = (readers != null && readers.Count > 0) ? readers[0] : null;
 
+
                 if (lectorFisico == null)
                 {
                     System.Diagnostics.Debug.WriteLine("[LOG Enrolar ERROR] No se detectó ningún hardware lector conectado.");
