@@ -10,9 +10,25 @@ namespace DevsFingerPrint.Infrastructure.Data
 {
     public class LocalDatabase
     {
-
-        private static string dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "local_data.db");
+        // Modificado: Ahora la base de datos se aloja en una ubicación segura y protegida del sistema (ProgramData)
+        private static string dbPath = ObtenerRutaSeguraDb();
         public static string ConnectionString => $"Data Source={dbPath};Version=3;";
+
+        private static string ObtenerRutaSeguraDb()
+        {
+            string carpetaComun = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ControlFichajes"
+            );
+
+            // Nos aseguramos de que el directorio exista físicamente antes de intentar crear la DB
+            if (!Directory.Exists(carpetaComun))
+            {
+                Directory.CreateDirectory(carpetaComun);
+            }
+
+            return Path.Combine(carpetaComun, "fichajes_local.db");
+        }
 
         public static void Inicializar()
         {
@@ -75,7 +91,6 @@ namespace DevsFingerPrint.Infrastructure.Data
             }
         }
 
-
         // Método para guardar o actualizar los datos de la sucursal (ej. al loguearse por primera vez)
         public static void GuardarSucursalLocal(int id, string nombre, int empresaId, string serialLector)
         {
@@ -125,12 +140,5 @@ namespace DevsFingerPrint.Infrastructure.Data
                 return string.Empty;
             }
         }
-
-
-
-
-
-
-
     }
 }
