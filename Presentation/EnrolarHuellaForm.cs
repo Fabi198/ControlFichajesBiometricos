@@ -13,7 +13,6 @@ namespace DevsFingerPrint.Presentation
 {
     public class EnrolarHuellaForm : Form
     {
-
         private System.Windows.Forms.Timer timerDuracionGif = new System.Windows.Forms.Timer();
         private Image gifActualEnUso = null;
 
@@ -23,7 +22,9 @@ namespace DevsFingerPrint.Presentation
         private Reader _reader;
         private List<Fmd> _enrollmentFmds;
         private List<Empleado> _todosEmpleados;
+        private List<Huella> _todasLasHuellasLocales;
         private HashSet<int> _empleadosConHuellaIds;
+        private HashSet<int> _dedosRegistradosDelEmpleadoActual = new HashSet<int>();
 
         public Huella HuellaCapturada { get; private set; }
         public int EmpleadoIdSeleccionado { get; private set; }
@@ -42,12 +43,15 @@ namespace DevsFingerPrint.Presentation
         private Button btnCancelar;
         private PictureBox pbManos;
         private ComboBox cbEmpleados;
-        private CheckBox chkMostrarTodos;
         private PictureBox pbLogo;
         private Label lblTitulo;
         private PictureBox pbHuellaAnim;
         private int muestraActual = 0;
         private Label lblInstrucciones;
+        private Label lblFingerSelect;
+        private GroupBox gbEmpleados;
+        private RadioButton rbConHuella;
+        private RadioButton rbSinHuella;
 
         // Coordenadas originales para el tamaño estándar de la imagen de manos (360x135)
         private readonly Dictionary<int, Rectangle> zonasDedosOriginales = new Dictionary<int, Rectangle>
@@ -67,12 +71,13 @@ namespace DevsFingerPrint.Presentation
             { 1, new Rectangle(785, 310, 60, 60) }    // Pulgar Derecho
         };
 
-        public EnrolarHuellaForm(Reader reader, IEnumerable<Empleado> listaEmpleados, IEnumerable<int> empleadosConHuellaIds = null)
+        public EnrolarHuellaForm(Reader reader, IEnumerable<Empleado> listaEmpleados, IEnumerable<Huella> huellasLocales = null)
         {
             _reader = reader;
             _todosEmpleados = listaEmpleados != null ? new List<Empleado>(listaEmpleados) : new List<Empleado>();
-            _empleadosConHuellaIds = empleadosConHuellaIds != null ?
-                new HashSet<int>(empleadosConHuellaIds) : new HashSet<int>();
+            _todasLasHuellasLocales = huellasLocales != null ? new List<Huella>(huellasLocales) : new List<Huella>();
+
+            _empleadosConHuellaIds = new HashSet<int>(_todasLasHuellasLocales.Select(h => h.EmpleadoId));
 
             InitializeComponent();
             lblTitulo.Text = "Enrolamiento de Empleado";
@@ -94,9 +99,16 @@ namespace DevsFingerPrint.Presentation
             pbLogo.SizeMode = PictureBoxSizeMode.Zoom;
             pbLogo.BackColor = Color.Transparent;
 
+            lblFingerSelect.ForeColor = Color.White;
+            lblFingerSelect.BackColor = Color.Transparent;
+
+            gbEmpleados.ForeColor = Color.White;
+            gbEmpleados.BackColor = Color.Transparent;
+
             lblInstrucciones.ForeColor = Color.White;
             lblInstrucciones.BackColor = Color.Transparent;
-            lblInstrucciones.Text = "Muestra registrada (1 de 4)";
+            lblInstrucciones.Text = "Apoye el dedo en el lector";
+            lblInstrucciones.TextAlign = ContentAlignment.MiddleCenter;
             lblInstrucciones.Location = new Point(
                 pbHuellaAnim.Left + (pbHuellaAnim.Width - lblInstrucciones.Width) / 2,
                 pbHuellaAnim.Bottom + 10
@@ -107,9 +119,8 @@ namespace DevsFingerPrint.Presentation
             pbManos.BackColor = ColorCard;
             pbManos.Cursor = Cursors.Hand;
             cbEmpleados.DropDownStyle = ComboBoxStyle.DropDownList;
-            chkMostrarTodos.ForeColor = Color.White;
-            chkMostrarTodos.BackColor = Color.Transparent;
-            chkMostrarTodos.CheckedChanged += (s, e) => FiltrarYCargarEmpleados();
+
+            cbEmpleados.SelectedIndexChanged += CbEmpleados_SelectedIndexChanged;
 
             // Configuración inicial del PictureBox del GIF animado de huella
             pbHuellaAnim.SizeMode = PictureBoxSizeMode.CenterImage;
@@ -184,6 +195,34 @@ namespace DevsFingerPrint.Presentation
             return new Rectangle(x, y, w, h);
         }
 
+        private void CbEmpleados_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            _dedosRegistradosDelEmpleadoActual.Clear();
+
+            if (cbEmpleados.SelectedValue is int empleadoId)
+            {
+                var huellasDelEmpleado = _todasLasHuellasLocales.Where(h => h.EmpleadoId == empleadoId);
+                foreach (var h in huellasDelEmpleado)
+                {
+                    _dedosRegistradosDelEmpleadoActual.Add(h.IndiceDedo);
+                }
+
+                if (_dedosRegistradosDelEmpleadoActual.Contains(IndiceDedoSeleccionado))
+                {
+                    for (int i = 1; i <= 10; i++)
+                    {
+                        if (!_dedosRegistradosDelEmpleadoActual.Contains(i))
+                        {
+                            IndiceDedoSeleccionado = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            pbManos.Invalidate();
+        }
+
         private void PbManos_Paint(object sender, PaintEventArgs e)
         {
             Graphics g = e.Graphics;
@@ -193,14 +232,21 @@ namespace DevsFingerPrint.Presentation
 
             using (SolidBrush brushSeleccion = new SolidBrush(Color.FromArgb(150, ColorAzul)))
             using (SolidBrush brushHover = new SolidBrush(Color.FromArgb(80, ColorAzul)))
+            using (SolidBrush brushOcupado = new SolidBrush(Color.FromArgb(120, 80, 80, 80)))
             using (Pen penBorde = new Pen(Color.White, 1.5f))
+            using (Pen penOcupado = new Pen(Color.FromArgb(140, 140, 140), 1f))
             {
                 foreach (var kvp in zonasDedosOriginales)
                 {
                     int idDedo = kvp.Key;
                     Rectangle rectControl = MapearRectanguloAZonaControl(kvp.Value, rectImgReal);
 
-                    if (idDedo == IndiceDedoSeleccionado)
+                    if (_dedosRegistradosDelEmpleadoActual.Contains(idDedo))
+                    {
+                        g.FillEllipse(brushOcupado, rectControl);
+                        g.DrawEllipse(penOcupado, rectControl);
+                    }
+                    else if (idDedo == IndiceDedoSeleccionado)
                     {
                         g.FillEllipse(brushSeleccion, rectControl);
                         g.DrawEllipse(penBorde, rectControl);
@@ -224,7 +270,11 @@ namespace DevsFingerPrint.Presentation
                 Rectangle rectControl = MapearRectanguloAZonaControl(kvp.Value, rectImgReal);
                 if (rectControl.Contains(e.Location))
                 {
-                    nuevoHover = kvp.Key;
+                    int idDedo = kvp.Key;
+                    if (!_dedosRegistradosDelEmpleadoActual.Contains(idDedo))
+                    {
+                        nuevoHover = idDedo;
+                    }
                     break;
                 }
             }
@@ -253,7 +303,15 @@ namespace DevsFingerPrint.Presentation
                 Rectangle rectControl = MapearRectanguloAZonaControl(kvp.Value, rectImgReal);
                 if (rectControl.Contains(e.Location))
                 {
-                    IndiceDedoSeleccionado = kvp.Key;
+                    int idDedo = kvp.Key;
+
+                    if (_dedosRegistradosDelEmpleadoActual.Contains(idDedo))
+                    {
+                        MessageBox.Show("Este dedo ya tiene una huella registrada para el empleado seleccionado.", "Dedo Ocupado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    IndiceDedoSeleccionado = idDedo;
                     pbManos.Invalidate();
                     break;
                 }
@@ -262,10 +320,17 @@ namespace DevsFingerPrint.Presentation
 
         private void FiltrarYCargarEmpleados()
         {
-            IEnumerable<Empleado> filtrados = _todosEmpleados;
-            if (!chkMostrarTodos.Checked && _empleadosConHuellaIds != null)
+            if (_todosEmpleados == null) return;
+
+            IEnumerable<Empleado> filtrados;
+
+            if (rbConHuella != null && rbConHuella.Checked)
             {
-                filtrados = _todosEmpleados.Where(e => !_empleadosConHuellaIds.Contains(e.Id));
+                filtrados = _todosEmpleados.Where(e => _empleadosConHuellaIds != null && _empleadosConHuellaIds.Contains(e.Id));
+            }
+            else
+            {
+                filtrados = _todosEmpleados.Where(e => _empleadosConHuellaIds == null || !_empleadosConHuellaIds.Contains(e.Id));
             }
 
             var lista = new List<Empleado>(filtrados);
@@ -273,6 +338,14 @@ namespace DevsFingerPrint.Presentation
             cbEmpleados.DisplayMember = "NombreCompleto";
             cbEmpleados.ValueMember = "Id";
             cbEmpleados.DataSource = lista;
+        }
+
+        private void RbFiltro_CheckedChanged(object sender, EventArgs e)
+        {
+            if (sender is RadioButton rb && rb.Checked)
+            {
+                FiltrarYCargarEmpleados();
+            }
         }
 
         private void CardPanel_Paint(object sender, PaintEventArgs e)
@@ -361,11 +434,11 @@ namespace DevsFingerPrint.Presentation
             {
                 _enrollmentFmds.Add(resultConversion.Data);
 
-                // Si todavía NO llegamos al total requerido, avanzamos el progreso normal de captura
                 if (_enrollmentFmds.Count < 4)
                 {
                     this.BeginInvoke(new Action(() =>
                     {
+                        System.Media.SystemSounds.Hand.Play();
                         muestraActual++;
                         ActualizarProgresoHuella(muestraActual);
                         lblInstrucciones.Text = $"Muestra registrada ({_enrollmentFmds.Count} de 4)";
@@ -375,12 +448,10 @@ namespace DevsFingerPrint.Presentation
                 }
                 else
                 {
-                    // Ya tenemos las 4 muestras, intentamos compilar la plantilla
                     DataResult<Fmd> createResult = Enrollment.CreateEnrollmentFmd(Constants.Formats.Fmd.ANSI, _enrollmentFmds);
 
                     if (createResult.ResultCode == Constants.ResultCode.DP_SUCCESS)
                     {
-                        // Ya tenemos las 4 muestras y createResult.ResultCode == Constants.ResultCode.DP_SUCCESS
                         this.BeginInvoke(new Action(() =>
                         {
                             if (!ValidarSelecciones())
@@ -408,19 +479,16 @@ namespace DevsFingerPrint.Presentation
                                     TemplateBiometrico = templateBase64
                                 };
 
-                                // 1. PRIMERO actualizamos el progreso/animación al estado de éxito (GIF 4) y ponemos el texto
                                 muestraActual = 4;
                                 ActualizarProgresoHuella(muestraActual);
                                 lblInstrucciones.Text = "¡Huella registrada con éxito!";
 
-                                // 2. DESPUÉS lanzamos el hilo en segundo plano para detener la captura y mostrar el cartel al final
                                 ThreadPool.QueueUserWorkItem(_ =>
                                 {
                                     DetenerCaptura();
 
                                     this.BeginInvoke(new Action(() =>
                                     {
-                                        // El MessageBox va al final de todo para que la animación ya se esté reproduciendo
                                         MessageBox.Show("¡Huella enrolada exitosamente!", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
                                         this.DialogResult = DialogResult.OK;
                                         this.Close();
@@ -439,20 +507,13 @@ namespace DevsFingerPrint.Presentation
                     }
                     else
                     {
-                        // Falla al compilar las 4 muestras:
                         this.BeginInvoke(new Action(() =>
                         {
                             _enrollmentFmds.Clear();
                             muestraActual = 0;
-
-                            // 1. PRIMERO disparamos la animación y el texto de error para que se vea al toque
                             MostrarErrorAnimacion();
-                            lblInstrucciones.Text = "No se pudo compilar la plantilla. Intente nuevamente.";
-
-                            // 2. DESPUÉS lanzamos el MessageBox (o podés sacarlo directamente para que no interrumpa al usuario)
+                            lblInstrucciones.Text = "No se pudo compilar la plantilla";
                             MessageBox.Show("No se pudo compilar la plantilla. Intente nuevamente.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-                            // 3. Reiniciamos la captura
                             SolicitarSiguienteMuestra();
                         }));
                     }
@@ -460,7 +521,6 @@ namespace DevsFingerPrint.Presentation
             }
             else
             {
-                // Falla la conversión de la muestra individual
                 this.BeginInvoke(new Action(() =>
                 {
                     MostrarErrorAnimacion();
@@ -485,35 +545,22 @@ namespace DevsFingerPrint.Presentation
             }
         }
 
-        private Bitmap CrearBitmap(byte[] bytes, int width, int height)
-        {
-            Bitmap bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format8bppIndexed);
-            System.Drawing.Imaging.ColorPalette palette = bmp.Palette;
-            for (int i = 0; i < 256; i++) palette.Entries[i] = Color.FromArgb(i, i, i);
-            bmp.Palette = palette;
-
-            System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
-                new Rectangle(0, 0, width, height),
-                System.Drawing.Imaging.ImageLockMode.WriteOnly,
-                bmp.PixelFormat);
-            System.Runtime.InteropServices.Marshal.Copy(bytes, 0, bmpData.Scan0, bytes.Length);
-            bmp.UnlockBits(bmpData);
-
-            return bmp;
-        }
-
         private void InitializeComponent()
         {
             this.cardPanel = new System.Windows.Forms.Panel();
+            this.gbEmpleados = new System.Windows.Forms.GroupBox();
+            this.rbConHuella = new System.Windows.Forms.RadioButton();
+            this.rbSinHuella = new System.Windows.Forms.RadioButton();
+            this.cbEmpleados = new System.Windows.Forms.ComboBox();
+            this.lblFingerSelect = new System.Windows.Forms.Label();
             this.lblInstrucciones = new System.Windows.Forms.Label();
             this.pbHuellaAnim = new System.Windows.Forms.PictureBox();
             this.lblTitulo = new System.Windows.Forms.Label();
             this.btnCancelar = new System.Windows.Forms.Button();
             this.pbManos = new System.Windows.Forms.PictureBox();
-            this.cbEmpleados = new System.Windows.Forms.ComboBox();
-            this.chkMostrarTodos = new System.Windows.Forms.CheckBox();
             this.pbLogo = new System.Windows.Forms.PictureBox();
             this.cardPanel.SuspendLayout();
+            this.gbEmpleados.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbHuellaAnim)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbManos)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbLogo)).BeginInit();
@@ -521,23 +568,77 @@ namespace DevsFingerPrint.Presentation
             // 
             // cardPanel
             // 
+            this.cardPanel.Controls.Add(this.gbEmpleados);
+            this.cardPanel.Controls.Add(this.lblFingerSelect);
             this.cardPanel.Controls.Add(this.lblInstrucciones);
             this.cardPanel.Controls.Add(this.pbHuellaAnim);
             this.cardPanel.Controls.Add(this.lblTitulo);
             this.cardPanel.Controls.Add(this.btnCancelar);
             this.cardPanel.Controls.Add(this.pbManos);
-            this.cardPanel.Controls.Add(this.cbEmpleados);
-            this.cardPanel.Controls.Add(this.chkMostrarTodos);
             this.cardPanel.Controls.Add(this.pbLogo);
             this.cardPanel.Location = new System.Drawing.Point(12, 12);
             this.cardPanel.Name = "cardPanel";
-            this.cardPanel.Size = new System.Drawing.Size(460, 601);
+            this.cardPanel.Size = new System.Drawing.Size(460, 579);
             this.cardPanel.TabIndex = 0;
+            // 
+            // gbEmpleados
+            // 
+            this.gbEmpleados.Controls.Add(this.rbConHuella);
+            this.gbEmpleados.Controls.Add(this.rbSinHuella);
+            this.gbEmpleados.Controls.Add(this.cbEmpleados);
+            this.gbEmpleados.Location = new System.Drawing.Point(86, 93);
+            this.gbEmpleados.Name = "gbEmpleados";
+            this.gbEmpleados.Size = new System.Drawing.Size(295, 93);
+            this.gbEmpleados.TabIndex = 10;
+            this.gbEmpleados.TabStop = false;
+            this.gbEmpleados.Text = "Listar empleados:";
+            // 
+            // rbConHuella
+            // 
+            this.rbConHuella.AutoSize = true;
+            this.rbConHuella.Location = new System.Drawing.Point(7, 41);
+            this.rbConHuella.Name = "rbConHuella";
+            this.rbConHuella.Size = new System.Drawing.Size(133, 17);
+            this.rbConHuella.TabIndex = 1;
+            this.rbConHuella.TabStop = true;
+            this.rbConHuella.Text = "Con huellas en sistema";
+            this.rbConHuella.UseVisualStyleBackColor = true;
+            this.rbConHuella.CheckedChanged += new System.EventHandler(this.RbFiltro_CheckedChanged);
+            // 
+            // rbSinHuella
+            // 
+            this.rbSinHuella.AutoSize = true;
+            this.rbSinHuella.Checked = true;
+            this.rbSinHuella.Location = new System.Drawing.Point(7, 20);
+            this.rbSinHuella.Name = "rbSinHuella";
+            this.rbSinHuella.Size = new System.Drawing.Size(129, 17);
+            this.rbSinHuella.TabIndex = 0;
+            this.rbSinHuella.TabStop = true;
+            this.rbSinHuella.Text = "Sin huellas en sistema";
+            this.rbSinHuella.UseVisualStyleBackColor = true;
+            this.rbSinHuella.CheckedChanged += new System.EventHandler(this.RbFiltro_CheckedChanged);
+            // 
+            // cbEmpleados
+            // 
+            this.cbEmpleados.FormattingEnabled = true;
+            this.cbEmpleados.Location = new System.Drawing.Point(12, 64);
+            this.cbEmpleados.Name = "cbEmpleados";
+            this.cbEmpleados.Size = new System.Drawing.Size(270, 21);
+            this.cbEmpleados.TabIndex = 2;
+            // 
+            // lblFingerSelect
+            // 
+            this.lblFingerSelect.AutoSize = true;
+            this.lblFingerSelect.Location = new System.Drawing.Point(156, 192);
+            this.lblFingerSelect.Name = "lblFingerSelect";
+            this.lblFingerSelect.Size = new System.Drawing.Size(142, 13);
+            this.lblFingerSelect.TabIndex = 9;
+            this.lblFingerSelect.Text = "Seleccione el dedo a enrolar";
             // 
             // lblInstrucciones
             // 
             this.lblInstrucciones.AutoSize = true;
-            this.lblInstrucciones.Location = new System.Drawing.Point(215, 412);
+            this.lblInstrucciones.Location = new System.Drawing.Point(215, 500);
             this.lblInstrucciones.Name = "lblInstrucciones";
             this.lblInstrucciones.Size = new System.Drawing.Size(35, 13);
             this.lblInstrucciones.TabIndex = 5;
@@ -545,9 +646,9 @@ namespace DevsFingerPrint.Presentation
             // 
             // pbHuellaAnim
             // 
-            this.pbHuellaAnim.Location = new System.Drawing.Point(165, 428);
+            this.pbHuellaAnim.Location = new System.Drawing.Point(177, 385);
             this.pbHuellaAnim.Name = "pbHuellaAnim";
-            this.pbHuellaAnim.Size = new System.Drawing.Size(127, 168);
+            this.pbHuellaAnim.Size = new System.Drawing.Size(109, 112);
             this.pbHuellaAnim.TabIndex = 8;
             this.pbHuellaAnim.TabStop = false;
             // 
@@ -555,7 +656,7 @@ namespace DevsFingerPrint.Presentation
             // 
             this.lblTitulo.AutoSize = true;
             this.lblTitulo.BackColor = System.Drawing.Color.Transparent;
-            this.lblTitulo.Location = new System.Drawing.Point(159, 73);
+            this.lblTitulo.Location = new System.Drawing.Point(160, 67);
             this.lblTitulo.Name = "lblTitulo";
             this.lblTitulo.Size = new System.Drawing.Size(133, 13);
             this.lblTitulo.TabIndex = 7;
@@ -564,7 +665,7 @@ namespace DevsFingerPrint.Presentation
             // 
             // btnCancelar
             // 
-            this.btnCancelar.Location = new System.Drawing.Point(333, 557);
+            this.btnCancelar.Location = new System.Drawing.Point(354, 536);
             this.btnCancelar.Name = "btnCancelar";
             this.btnCancelar.Size = new System.Drawing.Size(75, 23);
             this.btnCancelar.TabIndex = 6;
@@ -573,33 +674,15 @@ namespace DevsFingerPrint.Presentation
             // 
             // pbManos
             // 
-            this.pbManos.Location = new System.Drawing.Point(40, 163);
+            this.pbManos.Location = new System.Drawing.Point(86, 209);
             this.pbManos.Name = "pbManos";
-            this.pbManos.Size = new System.Drawing.Size(381, 242);
+            this.pbManos.Size = new System.Drawing.Size(295, 168);
             this.pbManos.TabIndex = 3;
             this.pbManos.TabStop = false;
             // 
-            // cbEmpleados
-            // 
-            this.cbEmpleados.FormattingEnabled = true;
-            this.cbEmpleados.Location = new System.Drawing.Point(82, 133);
-            this.cbEmpleados.Name = "cbEmpleados";
-            this.cbEmpleados.Size = new System.Drawing.Size(306, 21);
-            this.cbEmpleados.TabIndex = 2;
-            // 
-            // chkMostrarTodos
-            // 
-            this.chkMostrarTodos.AutoSize = true;
-            this.chkMostrarTodos.Location = new System.Drawing.Point(83, 110);
-            this.chkMostrarTodos.Name = "chkMostrarTodos";
-            this.chkMostrarTodos.Size = new System.Drawing.Size(167, 17);
-            this.chkMostrarTodos.TabIndex = 1;
-            this.chkMostrarTodos.Text = "Mostrar empleados con huella";
-            this.chkMostrarTodos.UseVisualStyleBackColor = true;
-            // 
             // pbLogo
             // 
-            this.pbLogo.Location = new System.Drawing.Point(162, 15);
+            this.pbLogo.Location = new System.Drawing.Point(162, 7);
             this.pbLogo.Name = "pbLogo";
             this.pbLogo.Size = new System.Drawing.Size(130, 50);
             this.pbLogo.TabIndex = 0;
@@ -613,6 +696,8 @@ namespace DevsFingerPrint.Presentation
             this.Load += new System.EventHandler(this.EnrolarHuellaForm_Load);
             this.cardPanel.ResumeLayout(false);
             this.cardPanel.PerformLayout();
+            this.gbEmpleados.ResumeLayout(false);
+            this.gbEmpleados.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbHuellaAnim)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbManos)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pbLogo)).EndInit();
@@ -657,7 +742,7 @@ namespace DevsFingerPrint.Presentation
             {
                 case 1:
                     gifActualEnUso = Properties.Resources.huella01;
-                    frameLimiteMaximo = 9; // o el límite de frames que tenga tu gif 1
+                    frameLimiteMaximo = 9;
                     break;
                 case 2:
                     gifActualEnUso = Properties.Resources.huella02;
@@ -672,8 +757,8 @@ namespace DevsFingerPrint.Presentation
                     frameLimiteMaximo = 145;
                     break;
                 case 5:
-                    gifActualEnUso = Properties.Resources.huella05; // <-- ¡Acá tiene que estar huella05 y no huella04!
-                    frameLimiteMaximo = 145; // Poné el límite de frames que tenga huella05
+                    gifActualEnUso = Properties.Resources.huella05; // Error
+                    frameLimiteMaximo = 145;
                     break;
                 default:
                     pbHuellaAnim.Image = null;
@@ -681,7 +766,6 @@ namespace DevsFingerPrint.Presentation
                     return;
             }
 
-            // El resto de tu código de animación...
             if (gifActualEnUso != null)
             {
                 try
@@ -693,6 +777,7 @@ namespace DevsFingerPrint.Presentation
             }
 
             frameActualContador = 0;
+            pbHuellaAnim.SizeMode = PictureBoxSizeMode.StretchImage;
             pbHuellaAnim.Image = gifActualEnUso;
 
             if (gifActualEnUso != null && ImageAnimator.CanAnimate(gifActualEnUso))
@@ -708,19 +793,16 @@ namespace DevsFingerPrint.Presentation
                 try { ImageAnimator.StopAnimate(gifActualEnUso, OnFrameChanged); } catch { }
             }
 
-            // 1. Cargamos el recurso fresco
             gifActualEnUso = Properties.Resources.huella05;
-
-            // 2. IMPORTANTE: Poné el número exacto de frames que dura el GIF (si dura menos, bajalo de 145 a lo que mida realmente)
             frameLimiteMaximo = 145;
-            frameActualContador = 0; // <-- CLAVE: Reseteamos el contador de frames acá mismo
+            frameActualContador = 0;
 
             if (gifActualEnUso != null)
             {
                 try
                 {
                     FrameDimension dimension = new FrameDimension(gifActualEnUso.FrameDimensionsList[0]);
-                    gifActualEnUso.SelectActiveFrame(dimension, 0); // <-- CLAVE: Forzamos a arrancar desde el fotograma 0 (el primero)
+                    gifActualEnUso.SelectActiveFrame(dimension, 0);
                 }
                 catch { }
             }
@@ -744,12 +826,10 @@ namespace DevsFingerPrint.Presentation
             ImageAnimator.UpdateFrames(gifActualEnUso);
             frameActualContador++;
 
-            // Si alcanzamos el límite de fotogramas configurado para este tramo:
             if (frameActualContador >= frameLimiteMaximo)
             {
                 ImageAnimator.StopAnimate(gifActualEnUso, OnFrameChanged);
 
-                // <-- VA ACÁ ADENTRO:
                 if (gifActualEnUso != null && gifActualEnUso.FrameDimensionsList != null && gifActualEnUso.FrameDimensionsList.Length > 0)
                 {
                     try
@@ -764,6 +844,5 @@ namespace DevsFingerPrint.Presentation
 
             pbHuellaAnim.Invalidate();
         }
-
     }
 }

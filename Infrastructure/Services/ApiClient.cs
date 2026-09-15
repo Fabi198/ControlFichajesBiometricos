@@ -44,23 +44,75 @@ namespace DevsFingerPrint.Infrastructure.Services
             return false;
         }
 
-        public bool EnviarHeartbeat(int agenteId)
+        public bool EnviarHeartbeat()
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
+            System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Iniciando proceso de envío de heartbeat...");
+
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] FALLO: No hay _authToken activo y la renovación de sesión falló.");
+                return false;
+            }
+
+            int agenteId = ExtraerAgenteIdDeToken(_authToken);
+            if (agenteId <= 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] FALLO: No se pudo extraer un agente_id válido del token.");
+                return false;
+            }
+
             try
             {
                 string url = $"{_baseUrl}/api/agentes/{agenteId}/heartbeat";
-                string response = RealizarPeticion("POST", url, null, _authToken);
-                return !string.IsNullOrEmpty(response);
+                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT] Realizando petición POST a: {url}");
+
+                // Cambiamos null por un JSON vacío "{}" por si el backend exige cuerpo en los POST
+                string jsonBody = "{}";
+                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
+
+                bool exito = !string.IsNullOrEmpty(response);
+                if (exito)
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ÉXITO: Latido enviado y confirmado por el servidor.");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ADVERTENCIA: El servidor respondió con contenido vacío.");
+                }
+
+                return exito;
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                // Si vuelve a dar 400, acá podemos capturar la respuesta exacta del servidor para leer el mensaje de error que manda la API
+                if (ex.Response is HttpWebResponse err)
                 {
-                    return EnviarHeartbeat(agenteId);
+                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)err.StatusCode} - {err.StatusDescription}");
+
+                    try
+                    {
+                        using (var reader = new StreamReader(err.GetResponseStream()))
+                        {
+                            string errorBody = reader.ReadToEnd();
+                            System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR DETALLE]: {errorBody}");
+                        }
+                    }
+                    catch { }
+
+                    if (err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Token expirado (401), renovando sesión y reintentando...");
+                        return EnviarHeartbeat();
+                    }
                 }
-                System.Diagnostics.Debug.WriteLine($"Error en heartbeat: {ex.Message}");
+
+                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] WebException al enviar heartbeat: {ex.Message}");
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Error general al enviar heartbeat: {ex.Message}");
+            }
+
             return false;
         }
 
@@ -117,6 +169,52 @@ namespace DevsFingerPrint.Infrastructure.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("Error al decodificar JWT: " + ex.Message);
+            }
+            return 0;
+        }
+
+        private int ExtraerAgenteIdDeToken(string token)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG JWT AGENTE] Iniciando extracción de agente_id del token...");
+
+                string[] parts = token.Split('.');
+                if (parts.Length > 1)
+                {
+                    string base64 = parts[1].Replace('-', '+').Replace('_', '/');
+                    switch (base64.Length % 4)
+                    {
+                        case 2: base64 += "=="; break;
+                        case 3: base64 += "="; break;
+                    }
+
+                    byte[] data = Convert.FromBase64String(base64);
+                    string payloadJson = Encoding.UTF8.GetString(data);
+                    System.Diagnostics.Debug.WriteLine($"[LOG JWT AGENTE Payload]: {payloadJson}");
+
+                    JObject payload = JObject.Parse(payloadJson);
+
+                    JToken tokenAgente = payload["agente_id"] ?? payload["AgenteId"] ?? payload["agenteId"];
+                    if (tokenAgente != null)
+                    {
+                        int idExtraido = tokenAgente.Value<int>();
+                        System.Diagnostics.Debug.WriteLine($"[LOG JWT AGENTE] ÉXITO: Se encontró agente_id en el payload: {idExtraido}");
+                        return idExtraido;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG JWT AGENTE] ADVERTENCIA: Ninguna de las keys de agente ('agente_id', 'AgenteId', 'agenteId') existe en el payload del token.");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG JWT AGENTE] ADVERTENCIA: El formato del token JWT no tiene las partes esperadas.");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG JWT AGENTE ERROR] Error al decodificar agente_id del JWT: " + ex.Message);
             }
             return 0;
         }

@@ -20,6 +20,7 @@ namespace DevsFingerPrint.Presentation
         private List<Huella> huellasCargadas;
         private ApiClient _apiClient;
         private readonly LectorListenerForm lectorFormularioOculto;
+        private System.Windows.Forms.Timer heartbeatTimer;
 
         private readonly System.Windows.Forms.Timer syncTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
@@ -32,12 +33,11 @@ namespace DevsFingerPrint.Presentation
             _apiClient = apiClient;
             fichadaRepository = new FichadaRepository();
             biometricService = new BiometricService(_apiClient);
-            
+
 
             huellasCargadas = new List<Huella>();
 
-            // Menú contextual del System Tray
-            var itemSimularFichada = new ToolStripMenuItem("Simular Fichada de Prueba", null, SimularFichada_Click);
+            
 
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Enrolar nueva huella", null, EnrolarNuevoEmpleado);
@@ -60,9 +60,9 @@ namespace DevsFingerPrint.Presentation
             biometricService.OnHuellaNoReconocida += OnHuellaNoReconocida;
             biometricService.OnEstadoCambiado += OnEstadoCambiado;
 
-            // Temporizador de sincronización periódica (cada 30 segundos)
+            // Temporizador de sincronización periódica (cada 2 horas)
             syncTimer = new System.Windows.Forms.Timer();
-            syncTimer.Interval = 30000;
+            syncTimer.Interval = 60000 * 60 * 2;
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
 
             // 1. Instanciar el formulario invisible y forzar la creación del Handle
@@ -89,6 +89,9 @@ namespace DevsFingerPrint.Presentation
             // 4. Lanzar sincronización inicial y encender timer
             SincronizarConServidorAsync();
             syncTimer.Start();
+
+            // 5. Inicializar el heartbeat periódico
+            InicializarHeartbeat();
         }
 
         private void SincronizarConServidorAsync()
@@ -102,7 +105,7 @@ namespace DevsFingerPrint.Presentation
                     System.Diagnostics.Debug.WriteLine($"[LOG Sync] Solicitando empleados y huellas al servidor...");
 
                     List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
-                    List<Huella> listaHuellas = _apiClient.ObtenerHuellas(); // Eliminado el EMPRESA_ID
+                    List<Huella> listaHuellas = _apiClient.ObtenerHuellas();
 
                     if (listaEmpleados != null && listaHuellas != null)
                     {
@@ -132,7 +135,7 @@ namespace DevsFingerPrint.Presentation
                             fichadaRepository.MarcarComoSincronizadas(ids);
                             System.Diagnostics.Debug.WriteLine($"[LOG Sync] {listaPendientes.Count} fichada(s) marcadas como sincronizadas en DB local.");
                             MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
-                            // Ejecutamos la limpieza y validamos su resultado
+
                             bool limpiezaOk = fichadaRepository.LimpiarFichadasSincronizadas();
                             if (limpiezaOk)
                             {
@@ -208,7 +211,6 @@ namespace DevsFingerPrint.Presentation
         {
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric SUCCESS] ¡Match encontrado! Empleado ID identificado: {empleadoId}");
 
-            // 1. Control de Cooldown (Anti-doble fichada de 5 minutos)
             var ultimaFichadaUsuario = fichadaRepository.ObtenerUltimaFichada(empleadoId);
             if (ultimaFichadaUsuario != null)
             {
@@ -216,14 +218,13 @@ namespace DevsFingerPrint.Presentation
                 if (minutosTranscurridos < 5)
                 {
                     System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada ignorada. Pasaron solo {minutosTranscurridos:N1} minutos desde la última.");
-                    Console.Beep(600, 100);
-                    Console.Beep(600, 100);
+                    System.Media.SystemSounds.Exclamation.Play();
+                    System.Media.SystemSounds.Exclamation.Play();
                     MostrarNotificacion("Fichada Duplicada", "Ya registró su asistencia hace pocos minutos.", ToolTipIcon.Warning);
                     return;
                 }
             }
 
-            // 2. Determinar si es Entrada o Salida por horario o alternancia
             string tipoRegistro = DeterminarTipoRegistro(empleadoId, ultimaFichadaUsuario);
 
             var nuevaFichada = new Fichada
@@ -238,13 +239,12 @@ namespace DevsFingerPrint.Presentation
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada guardada en DB local para EmpleadoId: {empleadoId} como {tipoRegistro}");
 
-            Console.Beep(1000, 150);
+            System.Media.SystemSounds.Asterisk.Play();
             MostrarNotificacion("Fichada Registrada", $"Empleado ID: {empleadoId} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
         }
 
         private string DeterminarTipoRegistro(int empleadoId, Fichada ultimaFichada)
         {
-            // Obtener los horarios teóricos del empleado desde la base de datos local
             var horario = fichadaRepository.ObtenerHorarioLaboral(empleadoId);
             DateTime ahora = DateTime.Now;
             TimeSpan horaActual = ahora.TimeOfDay;
@@ -253,19 +253,16 @@ namespace DevsFingerPrint.Presentation
             {
                 int horaEntradaH = horario.HoraEntrada.Hours;
 
-                // 1. Clasificación del tipo de horario según la Hora de Entrada
-                bool esTrasdia = horaEntradaH >= 18 && horaEntradaH < 24;    // Entran de tarde/noche y salen al día siguiente
-                bool esNocturno = horaEntradaH >= 0 && horaEntradaH < 6;      // Entran en la madrugada (00:00 a 05:59)
-                bool esDiurno = !esTrasdia && !esNocturno;                   // Horario normal de día (06:00 a 17:59)
+                bool esTrasdia = horaEntradaH >= 18 && horaEntradaH < 24;
+                bool esNocturno = horaEntradaH >= 0 && horaEntradaH < 6;
+                bool esDiurno = !esTrasdia && !esNocturno;
 
                 if (ultimaFichada != null)
                 {
-                    DateTime fechaUltima = ultimaFichada.FechaHora; // Asegúrate de que tu modelo Fichada tenga esta propiedad DateTime
+                    DateTime fechaUltima = ultimaFichada.FechaHora;
 
                     if (esTrasdia)
                     {
-                        // Trasdia: Cruza la medianoche. Si la última fue Entrada y aún estamos en el ciclo del turno (madrugada/mañana siguiente), toca Salida.
-                        // Si la última fichada fue hace más de un día y medio, se asume que olvidó marcar y se reinicia a Entrada.
                         TimeSpan diferenciaTiempo = ahora - fechaUltima;
                         if (ultimaFichada.TipoRegistro == "Entrada" && diferenciaTiempo.TotalHours < 16)
                         {
@@ -274,8 +271,6 @@ namespace DevsFingerPrint.Presentation
                     }
                     else
                     {
-                        // Diurno o Nocturno: Ocurren y terminan el mismo día.
-                        // Si la última fichada fue en un día calendario anterior, se reinicia el flipper automáticamente (es un nuevo día -> Entrada).
                         if (fechaUltima.Date < ahora.Date)
                         {
                             return "Entrada";
@@ -284,13 +279,11 @@ namespace DevsFingerPrint.Presentation
                 }
             }
 
-            // Fallback de alternancia estándar (Flipper): si la última fue Entrada, toca Salida y viceversa.
             if (ultimaFichada != null)
             {
                 return ultimaFichada.TipoRegistro == "Entrada" ? "Salida" : "Entrada";
             }
 
-            // Por defecto si es su primer registro histórico del día
             return "Entrada";
         }
 
@@ -309,7 +302,6 @@ namespace DevsFingerPrint.Presentation
             {
                 notifyIcon.Text = textoCompleto.Length > 63 ? textoCompleto.Substring(0, 60) + "..." : textoCompleto;
 
-                // Dispara la notificación visual flotante solo cuando el lector esté listo
                 if (mensaje.Contains("Lector listo") || mensaje.Contains("listo"))
                 {
                     MostrarNotificacion("Sensor Activo", "El lector U.are.U está listo. Ya se puede fichar.", ToolTipIcon.Info);
@@ -325,7 +317,7 @@ namespace DevsFingerPrint.Presentation
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
             int cantidad = huellasCargadas != null ? huellasCargadas.Count : 0;
-            
+
             MessageBox.Show($"Huellas en caché: {cantidad}\nBase de datos local: Listo\nSerial del lector: {biometricService.ObtenerLectorActual().Description.SerialNumber}", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -339,7 +331,6 @@ namespace DevsFingerPrint.Presentation
                 ReaderCollection readers = ReaderCollection.GetReaders();
                 Reader lectorFisico = (readers != null && readers.Count > 0) ? readers[0] : null;
 
-
                 if (lectorFisico == null)
                 {
                     System.Diagnostics.Debug.WriteLine("[LOG Enrolar ERROR] No se detectó ningún hardware lector conectado.");
@@ -350,7 +341,11 @@ namespace DevsFingerPrint.Presentation
                 System.Diagnostics.Debug.WriteLine("[LOG Enrolar] Obteniendo lista de empleados desde la API...");
                 List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
 
-                using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, listaEmpleados))
+                // Obtenemos las huellas locales actuales desde el repositorio
+                var huellasLocales = fichadaRepository.ObtenerHuellasLocales();
+
+                // Pasamos la lista de empleados y la colección completa de huellas locales al formulario
+                using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, listaEmpleados, huellasLocales))
                 {
                     if (frmEnrolar.ShowDialog() == DialogResult.OK && frmEnrolar.HuellaCapturada != null)
                     {
@@ -399,6 +394,7 @@ namespace DevsFingerPrint.Presentation
         {
             System.Diagnostics.Debug.WriteLine("[LOG MainTray] Cerrando aplicación.");
             biometricService.DetenerLectura();
+            DetenerHeartbeat();
 
             if (lectorFormularioOculto != null && !lectorFormularioOculto.IsDisposed)
             {
@@ -409,24 +405,61 @@ namespace DevsFingerPrint.Presentation
             Application.Exit();
         }
 
-        private void SimularFichada_Click(object sender, EventArgs e)
+        private void InicializarHeartbeat()
         {
-            string tipoRegistro = "Entrada";
+            System.Diagnostics.Debug.WriteLine("[LOG TRAY] Configurando temporizador de Heartbeat...");
 
-            var nuevaFichada = new Fichada
+            // Instanciamos el timer (ej. cada 5 minutos: 60000 ms * 5)
+            heartbeatTimer = new System.Windows.Forms.Timer();
+            heartbeatTimer.Interval = 30000; // 5 minutos (podes ajustarlo si querés probar más rápido)
+            heartbeatTimer.Tick += (sender, e) => EjecutarHeartbeatPeriodico();
+            heartbeatTimer.Start();
+
+            System.Diagnostics.Debug.WriteLine("[LOG TRAY] Temporizador de Heartbeat iniciado correctamente.");
+
+            // Opcional: Lanzar un latido inmediatamente al arrancar la app en segundo plano
+            EjecutarHeartbeatPeriodico();
+        }
+
+        private void EjecutarHeartbeatPeriodico()
+        {
+            System.Diagnostics.Debug.WriteLine("[LOG TRAY] Ejecutando hilo en segundo plano para enviar heartbeat...");
+
+            // Usamos ThreadPool para evitar bloquear la interfaz gráfica o el lector de huellas
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
-                EmpleadoId = 1,
-                FechaHora = DateTime.Now,
-                TipoRegistro = tipoRegistro,
-                Metodo = "Biometrico",
-                Sincronizado = false
-            };
+                try
+                {
+                    // Asumiendo que tenés acceso a tu instancia de ApiClient (ej: _apiClient)
+                    bool resultado = _apiClient.EnviarHeartbeat();
 
-            fichadaRepository.GuardarFichadaLocal(nuevaFichada);
-            System.Diagnostics.Debug.WriteLine($"[LOG Simulación] Fichada simulada guardada para EmpleadoId: 1");
+                    if (resultado)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG TRAY] Heartbeat periódico completado y confirmado con éxito.");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG TRAY] ADVERTENCIA: El servidor no pudo procesar o confirmar el heartbeat.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Silencioso para no interrumpir al usuario si hay problemas de conectividad intermitentes
+                    System.Diagnostics.Debug.WriteLine($"[LOG TRAY ERROR] Excepción no controlada en el hilo de heartbeat: {ex.Message}");
+                }
+            });
+        }
 
-            Console.Beep(1000, 150);
-            MostrarNotificacion("Fichada Registrada", $"Empleado ID: 1 - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
+        // Recordá llamar a este método para limpiar el timer cuando se cierre la aplicación (ej: en SalirAplicacion)
+        private void DetenerHeartbeat()
+        {
+            if (heartbeatTimer != null)
+            {
+                System.Diagnostics.Debug.WriteLine("[LOG TRAY] Deteniendo y liberando recursos del temporizador de Heartbeat...");
+                heartbeatTimer.Stop();
+                heartbeatTimer.Dispose();
+                heartbeatTimer = null;
+            }
         }
     }
 }
