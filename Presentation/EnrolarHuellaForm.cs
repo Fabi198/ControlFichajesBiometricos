@@ -693,6 +693,7 @@ namespace DevsFingerPrint.Presentation
             this.ClientSize = new System.Drawing.Size(599, 717);
             this.Controls.Add(this.cardPanel);
             this.Name = "EnrolarHuellaForm";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.EnrolarHuellaForm_FormClosing);
             this.Load += new System.EventHandler(this.EnrolarHuellaForm_Load);
             this.cardPanel.ResumeLayout(false);
             this.cardPanel.PerformLayout();
@@ -843,6 +844,27 @@ namespace DevsFingerPrint.Presentation
             }
 
             pbHuellaAnim.Invalidate();
+        }
+
+        // Dentro de EnrolarHuellaForm.cs
+        private void EnrolarHuellaForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            // Preguntar al usuario si realmente desea salir
+            DialogResult resultado = MessageBox.Show(
+                "¿Está seguro que desea salir?",
+                "Confirmación",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            // Si el usuario elige "No", cancelamos el cierre
+            if (resultado == DialogResult.No)
+            {
+                e.Cancel = true;
+            }
+           
+            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Entro aca, devuelve Cancel");
+            DetenerCaptura();
+            this.DialogResult = DialogResult.Cancel;
         }
     }
 }
