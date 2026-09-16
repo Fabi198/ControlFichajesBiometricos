@@ -33,7 +33,7 @@ namespace DevsFingerPrint.Presentation
 
         private void ConfigurarVentana()
         {
-            this.Text = "Instalación de Puesto Biométrico";
+            this.Text = "Login";
             this.Size = new Size(420, 520);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -56,7 +56,7 @@ namespace DevsFingerPrint.Presentation
             // Label: Client ID
             Label lblClientId = new Label
             {
-                Text = "Client ID / Puesto",
+                Text = "Client ID:",
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 Location = new Point(25, 25),
@@ -77,7 +77,7 @@ namespace DevsFingerPrint.Presentation
             // Label: Client Secret
             Label lblClientSecret = new Label
             {
-                Text = "Client Secret",
+                Text = "Client Secret:",
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 Location = new Point(25, 100),
@@ -99,7 +99,7 @@ namespace DevsFingerPrint.Presentation
             // Botón: Vincular Puesto
             btnIngresar = new Button
             {
-                Text = "Vincular Puesto",
+                Text = "Vincular Terminal",
                 Location = new Point(25, 200),
                 Size = new Size(290, 42),
                 BackColor = ColorAzul,
@@ -124,30 +124,22 @@ namespace DevsFingerPrint.Presentation
         {
             base.OnPaint(e);
             Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            // 1. Dibujar el badge superior "CA" redondeado
+            // Configuraciones de máxima calidad para renderizado de imágenes
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            // 1. Dibujar el logo/icono
             int iconSize = 48;
             int iconX = (this.ClientSize.Width - iconSize) / 2;
             int iconY = 35;
             Rectangle iconRect = new Rectangle(iconX, iconY, iconSize, iconSize);
 
-            using (GraphicsPath path = ObtenerRutaRedondeada(iconRect, 12))
-            using (SolidBrush brush = new SolidBrush(ColorAzul))
+            // Si tu recurso es un Icon (.ico), lo convertimos a Bitmap de alta calidad para dibujarlo
+            using (Bitmap logoBmp = Properties.Resources.circularColor.ToBitmap())
             {
-                g.FillPath(brush, path);
-            }
-
-            // Texto dentro del badge "CA"
-            using (Font fontBadge = new Font("Segoe UI", 12f, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(Color.White))
-            {
-                StringFormat sf = new StringFormat
-                {
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
-                g.DrawString("CA", fontBadge, textBrush, iconRect, sf);
+                g.DrawImage(logoBmp, iconRect);
             }
 
             // 2. Dibujar Titular
@@ -155,7 +147,7 @@ namespace DevsFingerPrint.Presentation
             using (SolidBrush brushTitulo = new SolidBrush(Color.White))
             {
                 StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
-                g.DrawString("Terminal Biométrica", fontTitulo, brushTitulo, new PointF(this.ClientSize.Width / 2, 95), sf);
+                g.DrawString("Control de Accesos", fontTitulo, brushTitulo, new PointF(this.ClientSize.Width / 2, 95), sf);
             }
 
             // 3. Dibujar Bajada
@@ -163,7 +155,7 @@ namespace DevsFingerPrint.Presentation
             using (SolidBrush brushSub = new SolidBrush(ColorTextoSub))
             {
                 StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
-                g.DrawString("Ingrese las credenciales del agente", fontSub, brushSub, new PointF(this.ClientSize.Width / 2, 128), sf);
+                g.DrawString("Ingrese sus credenciales", fontSub, brushSub, new PointF(this.ClientSize.Width / 2, 128), sf);
             }
         }
 
@@ -209,7 +201,7 @@ namespace DevsFingerPrint.Presentation
             }
             else
             {
-                MessageBox.Show("Credenciales de agente inválidas o servidor no disponible.", "Error de Autenticación", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Credenciales inválidas o servidor no disponible.", "Error de Autenticación", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnIngresar.Enabled = true;
             }
         }
