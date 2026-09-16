@@ -485,7 +485,6 @@ namespace DevsFingerPrint.Presentation
 
                                 ThreadPool.QueueUserWorkItem(_ =>
                                 {
-                                    DetenerCaptura();
 
                                     this.BeginInvoke(new Action(() =>
                                     {
@@ -849,20 +848,31 @@ namespace DevsFingerPrint.Presentation
         // Dentro de EnrolarHuellaForm.cs
         private void EnrolarHuellaForm_FormClosing(object sender, FormClosingEventArgs e)
         {
-            // Preguntar al usuario si realmente desea salir
-            DialogResult resultado = MessageBox.Show(
-                "¿Está seguro que desea salir?",
-                "Confirmación",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-            // Si el usuario elige "No", cancelamos el cierre
-            if (resultado == DialogResult.No)
+            // 1. Si el formulario ya viene con OK (porque terminó el enrolamiento), no preguntamos nada y salimos bien
+            if (this.DialogResult == DialogResult.OK)
             {
-                e.Cancel = true;
+                DetenerCaptura();
+                return;
             }
-           
-            System.Diagnostics.Debug.WriteLine($"[LOG EnrolarForm] Entro aca, devuelve Cancel");
+
+            // 2. Si el usuario apretó la 'X' o Alt+F4 a mitad del proceso, recién ahí le preguntamos
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                DialogResult resultado = MessageBox.Show(
+                    "¿Está seguro que desea cancelar el enrolamiento?",
+                    "Confirmación",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (resultado == DialogResult.No)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+
+            // 3. Si confirmó salir antes de terminar, cancelamos la captura y devolvemos Cancel
+            System.Diagnostics.Debug.WriteLine("[LOG EnrolarForm] Enrolamiento cancelado por el usuario.");
             DetenerCaptura();
             this.DialogResult = DialogResult.Cancel;
         }
