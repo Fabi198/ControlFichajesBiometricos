@@ -28,5 +28,8 @@ namespace DevsFingerPrint.Domain.Interfaces
         // Obtiene el horario de trabajo de un empleado
         HorarioLaboral ObtenerHorarioLaboral(int empleadoId);
 
+        // Obtiene el dni de un empleado segun su id
+        string ObtenerDniPorEmpleadoId(int empleadoId);
+
     }
 }

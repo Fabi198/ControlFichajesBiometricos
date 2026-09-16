@@ -37,7 +37,7 @@ namespace DevsFingerPrint.Presentation
 
             huellasCargadas = new List<Huella>();
 
-            
+
 
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Enrolar nueva huella", null, EnrolarNuevoEmpleado);
@@ -239,8 +239,11 @@ namespace DevsFingerPrint.Presentation
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada guardada en DB local para EmpleadoId: {empleadoId} como {tipoRegistro}");
 
+            // Buscamos el DNI del empleado en la base de datos local usando su EmpleadoId
+            string dniEmpleado = fichadaRepository.ObtenerDniPorEmpleadoId(empleadoId) ?? empleadoId.ToString();
+
             System.Media.SystemSounds.Asterisk.Play();
-            MostrarNotificacion("Fichada Registrada", $"Empleado ID: {empleadoId} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
+            MostrarNotificacion("Fichada Registrada", $"DNI: {dniEmpleado} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
         }
 
         private string DeterminarTipoRegistro(int empleadoId, Fichada ultimaFichada)

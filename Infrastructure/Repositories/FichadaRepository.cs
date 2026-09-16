@@ -272,6 +272,32 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             return null;
         }
 
+
+        public string ObtenerDniPorEmpleadoId(int empleadoId)
+        {
+            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            {
+                conexion.Open();
+                string query = @"SELECT DNI 
+                         FROM Empleado
+                         WHERE Id = @EmpleadoId;";
+
+                using (var command = new SQLiteCommand(query, conexion))
+                {
+                    command.Parameters.AddWithValue("@EmpleadoId", empleadoId);
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            // Validamos que el campo no sea nulo antes de convertirlo a string
+                            return reader.IsDBNull(0) ? null : reader.GetValue(0).ToString();
+                        }
+                    }
+                }
+            }
+            return null;
+        }
     }
 }
 

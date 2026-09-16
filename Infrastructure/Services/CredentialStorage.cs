@@ -5,7 +5,7 @@ using System.Text;
 
 public static class CredentialStorage
 {
-    private static readonly string FolderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ControlFichajes");
+    private static readonly string FolderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DevsFingerPrint");
     private static readonly string FilePath = Path.Combine(FolderPath, "config.dat");
 
     public static void GuardarCredenciales(string clientId, string clientSecret)
