@@ -34,10 +34,7 @@ namespace DevsFingerPrint.Presentation
             fichadaRepository = new FichadaRepository();
             biometricService = new BiometricService(_apiClient);
 
-
             huellasCargadas = new List<Huella>();
-
-
 
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Enrolar nueva huella", null, EnrolarNuevoEmpleado);
@@ -96,67 +93,69 @@ namespace DevsFingerPrint.Presentation
 
         private void SincronizarConServidorAsync()
         {
+            ThreadPool.QueueUserWorkItem(_ => EjecutarSincronizacionServidor());
+        }
+
+        private void EjecutarSincronizacionServidor()
+        {
             System.Diagnostics.Debug.WriteLine($"\n[LOG Sync] --- Inicio de ciclo de sincronización ({DateTime.Now:HH:mm:ss}) ---");
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            try
             {
-                try
+                System.Diagnostics.Debug.WriteLine($"[LOG Sync] Solicitando empleados y huellas al servidor...");
+
+                List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
+                List<Huella> listaHuellas = _apiClient.ObtenerHuellas();
+
+                if (listaEmpleados != null && listaHuellas != null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[LOG Sync] Solicitando empleados y huellas al servidor...");
+                    System.Diagnostics.Debug.WriteLine($"[LOG Sync] Datos recibidos de la API -> Empleados: {listaEmpleados.Count}, Huellas: {listaHuellas.Count}");
 
-                    List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
-                    List<Huella> listaHuellas = _apiClient.ObtenerHuellas();
+                    fichadaRepository.SincronizarCatalogoEmpresa(listaEmpleados, listaHuellas);
 
-                    if (listaEmpleados != null && listaHuellas != null)
+                    // Actualizar la caché local manteniendo la concurrencia segura
+                    CargarHuellasLocales();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOG Sync] ADVERTENCIA: Falló la obtención de huellas/empleados. Se conservan los datos locales previos.");
+                }
+
+                // Envío de fichadas locales no sincronizadas
+                var pendientes = fichadaRepository.ObtenerFichadasPendientes();
+                var listaPendientes = new List<Fichada>(pendientes);
+                System.Diagnostics.Debug.WriteLine($"[LOG Sync] Fichadas pendientes de envío: {listaPendientes.Count}");
+
+                if (listaPendientes.Count > 0)
+                {
+                    bool enviadas = _apiClient.EnviarFichadas(listaPendientes);
+                    if (enviadas)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[LOG Sync] Datos recibidos de la API -> Empleados: {listaEmpleados.Count}, Huellas: {listaHuellas.Count}");
+                        var ids = listaPendientes.ConvertAll(f => f.Id);
+                        fichadaRepository.MarcarComoSincronizadas(ids);
+                        System.Diagnostics.Debug.WriteLine($"[LOG Sync] {listaPendientes.Count} fichada(s) marcadas como sincronizadas en DB local.");
+                        MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
 
-                        fichadaRepository.SincronizarCatalogoEmpresa(listaEmpleados, listaHuellas);
-
-                        // Actualizar la caché local manteniendo la concurrencia segura
-                        CargarHuellasLocales();
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine("[LOG Sync] ADVERTENCIA: Falló la obtención de huellas/empleados. Se conservan los datos locales previos.");
-                    }
-
-                    // Envío de fichadas locales no sincronizadas
-                    var pendientes = fichadaRepository.ObtenerFichadasPendientes();
-                    var listaPendientes = new List<Fichada>(pendientes);
-                    System.Diagnostics.Debug.WriteLine($"[LOG Sync] Fichadas pendientes de envío: {listaPendientes.Count}");
-
-                    if (listaPendientes.Count > 0)
-                    {
-                        bool enviadas = _apiClient.EnviarFichadas(listaPendientes);
-                        if (enviadas)
+                        bool limpiezaOk = fichadaRepository.LimpiarFichadasSincronizadas();
+                        if (limpiezaOk)
                         {
-                            var ids = listaPendientes.ConvertAll(f => f.Id);
-                            fichadaRepository.MarcarComoSincronizadas(ids);
-                            System.Diagnostics.Debug.WriteLine($"[LOG Sync] {listaPendientes.Count} fichada(s) marcadas como sincronizadas en DB local.");
-                            MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
-
-                            bool limpiezaOk = fichadaRepository.LimpiarFichadasSincronizadas();
-                            if (limpiezaOk)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LOG Sync] Limpieza de fichadas locales antiguas completada correctamente.");
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LOG Sync] ADVERTENCIA: La sincronización en servidor fue exitosa, pero falló la limpieza local.");
-                            }
+                            System.Diagnostics.Debug.WriteLine("[LOG Sync] Limpieza de fichadas locales antiguas completada correctamente.");
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("[LOG Sync] ERROR: La API rechazó el envío de fichadas pendientes.");
+                            System.Diagnostics.Debug.WriteLine("[LOG Sync] ADVERTENCIA: La sincronización en servidor fue exitosa, pero falló la limpieza local.");
                         }
                     }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LOG Sync] ERROR: La API rechazó el envío de fichadas pendientes.");
+                    }
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LOG Sync ERROR] Excepción durante la sincronización: {ex.Message}");
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LOG Sync ERROR] Excepción durante la sincronización: {ex.Message}");
+            }
         }
 
         private void CargarHuellasLocales()
@@ -356,24 +355,24 @@ namespace DevsFingerPrint.Presentation
                         int indiceDedo = frmEnrolar.IndiceDedoSeleccionado;
 
                         System.Diagnostics.Debug.WriteLine($"[LOG Enrolar] Huella capturada exitosamente. EmpleadoId: {nuevaHuella.EmpleadoId}, Dedo: {indiceDedo}");
+                        System.Diagnostics.Debug.WriteLine("[LOG Enrolar API] Enviando nueva huella a la API...");
 
-                        ThreadPool.QueueUserWorkItem(_ =>
+                        // Guardado sincrónico en la API para asegurar la confirmación del servidor
+                        bool subida = _apiClient.GuardarHuella(nuevaHuella, indiceDedo);
+
+                        if (subida)
                         {
-                            System.Diagnostics.Debug.WriteLine("[LOG Enrolar API] Enviando nueva huella a la API...");
-                            bool subida = _apiClient.GuardarHuella(nuevaHuella, indiceDedo);
+                            System.Diagnostics.Debug.WriteLine("[LOG Enrolar API] Huella enviada con éxito. Ejecutando sincronización de catálogo...");
+                            MostrarNotificacion("Enrolamiento", "La huella fue subida correctamente al servidor central.", ToolTipIcon.Info);
 
-                            if (subida)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LOG Enrolar API] Huella enviada con éxito.");
-                                MostrarNotificacion("Enrolamiento", "La huella fue subida correctamente al servidor central.", ToolTipIcon.Info);
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LOG Enrolar API ERROR] La API devolvió un fallo al intentar guardar la huella.");
-                            }
-                        });
-
-                        CargarHuellasLocales();
+                            // Disparar sincronización inmediata para refrescar SQLite local y cache en memoria
+                            EjecutarSincronizacionServidor();
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("[LOG Enrolar API ERROR] La API devolvió un fallo al intentar guardar la huella.");
+                            MessageBox.Show("Ocurrió un error al intentar enviar la huella al servidor central.", "Error de Enrolamiento", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
                     }
                     else
                     {
