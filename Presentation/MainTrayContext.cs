@@ -59,7 +59,7 @@ namespace DevsFingerPrint.Presentation
 
             // Temporizador de sincronización periódica (cada 2 horas)
             syncTimer = new System.Windows.Forms.Timer();
-            syncTimer.Interval = 60000 * 60 * 2;
+            syncTimer.Interval = 60000 * 20;
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
 
             // 1. Instanciar el formulario invisible y forzar la creación del Handle
