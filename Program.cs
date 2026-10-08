@@ -19,7 +19,7 @@ namespace DevsFingerPrint
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            string apiUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://161.153.193.159:80";
+            string apiUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:5052";
 
             ApiClient apiClient = new ApiClient(apiUrl);
             bool logueado = false;
