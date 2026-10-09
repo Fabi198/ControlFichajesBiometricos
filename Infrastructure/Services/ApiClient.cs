@@ -84,29 +84,29 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                // Si vuelve a dar 400, acá podemos capturar la respuesta exacta del servidor para leer el mensaje de error que manda la API
                 if (ex.Response is HttpWebResponse err)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)err.StatusCode} - {err.StatusDescription}");
+                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)err.StatusCode}");
 
                     try
                     {
-                        using (var reader = new StreamReader(err.GetResponseStream()))
+                        using (var stream = err.GetResponseStream())
+                        using (var reader = new StreamReader(stream))
                         {
                             string errorBody = reader.ReadToEnd();
                             System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR DETALLE]: {errorBody}");
                         }
                     }
-                    catch { }
+                    catch (Exception readEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LOG ERROR] No se pudo leer el stream de error: {readEx.Message}");
+                    }
 
                     if (err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                     {
-                        System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Token expirado (401), renovando sesión y reintentando...");
                         return EnviarHeartbeat();
                     }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] WebException al enviar heartbeat: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -329,7 +329,8 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             if (!string.IsNullOrEmpty(token))
             {
-                request.Headers.Add("Authorization", "Bearer " + token);
+                // Forma correcta para HttpWebRequest en .NET Framework
+                request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
             }
 
             if (!string.IsNullOrEmpty(jsonBody) && (metodo == "POST" || metodo == "PUT"))
@@ -342,10 +343,50 @@ namespace DevsFingerPrint.Infrastructure.Services
                 }
             }
 
-            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-            using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+            try
             {
-                return reader.ReadToEnd();
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+                {
+                    return reader.ReadToEnd();
+                }
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse errorResponse)
+                {
+                    string errorText = string.Empty;
+                    int statusCode = (int)errorResponse.StatusCode;
+                    string statusDescription = errorResponse.StatusDescription;
+
+                    using (errorResponse)
+                    {
+                        Stream errorStream = errorResponse.GetResponseStream();
+
+                        if (errorStream != null)
+                        {
+                            using (errorStream)
+                            using (var reader = new StreamReader(errorStream))
+                            {
+                                errorText = reader.ReadToEnd();
+                            }
+                        }
+                    }
+
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ERROR API HTTP {statusCode} {statusDescription}]: {errorText}"
+                    );
+
+                    throw new WebException(
+                        $"La API respondió HTTP {statusCode} ({statusDescription}). " +
+                        $"Detalle: {errorText}",
+                        ex,
+                        ex.Status,
+                        null
+                    );
+                }
+
+                throw;
             }
         }
 

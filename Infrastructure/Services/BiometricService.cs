@@ -43,7 +43,7 @@ namespace DevsFingerPrint.Infrastructure.Services
         public bool IniciarLectura()
         {
             Debug.WriteLine("[LOG MockBiometric] Lector simulado iniciado correctamente.");
-            OnEstadoCambiado?.Invoke("Lector Mock listo. Use los botones de simulación.");
+            OnEstadoCambiado?.Invoke("Lector Mock listo.");
             return true;
         }
 
