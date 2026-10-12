@@ -23,6 +23,7 @@ namespace DevsFingerPrint.Presentation
         private System.Windows.Forms.Timer heartbeatTimer;
         private readonly System.Windows.Forms.Timer syncTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
+        private int sincronizacionEnCurso;
 
         private ContextMenuStrip contextMenu;
         private ToolStripMenuItem menuSimularFichada;
@@ -136,6 +137,11 @@ namespace DevsFingerPrint.Presentation
 
         private void EjecutarSincronizacionServidor()
         {
+            if (Interlocked.Exchange(ref sincronizacionEnCurso, 1) != 0)
+            {
+                return;
+            }
+
             System.Diagnostics.Debug.WriteLine($"\n[LOG Sync] --- Inicio de ciclo de sincronización ({DateTime.Now:HH:mm:ss}) ---");
 
             try
@@ -161,6 +167,10 @@ namespace DevsFingerPrint.Presentation
 
                 var pendientes = fichadaRepository.ObtenerFichadasPendientes();
                 var listaPendientes = new List<Fichada>(pendientes);
+                if (listaPendientes.Count > 500)
+                {
+                    listaPendientes = listaPendientes.GetRange(0, 500);
+                }
 
                 if (listaPendientes.Count > 0)
                 {
@@ -177,6 +187,10 @@ namespace DevsFingerPrint.Presentation
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[LOG Sync ERROR] Excepción durante la sincronización: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref sincronizacionEnCurso, 0);
             }
         }
 
@@ -230,7 +244,7 @@ namespace DevsFingerPrint.Presentation
                 EmpleadoId = empleadoId,
                 FechaHora = DateTime.Now,
                 TipoRegistro = tipoRegistro,
-                Metodo = "BiometricoMock",
+                Metodo = "Biometrico",
                 Sincronizado = false
             };
 

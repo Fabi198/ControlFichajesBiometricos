@@ -249,11 +249,18 @@ namespace DevsFingerPrint.Infrastructure.Services
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
             if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
+            if (fichadas == null || fichadas.Count == 0 || fichadas.Count > 500) return false;
             try
             {
-                string jsonBody = JsonConvert.SerializeObject(fichadas);
-                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
-                return !string.IsNullOrEmpty(response);
+                var solicitudes = fichadas.Select(f => new
+                {
+                    empleadoId = f.EmpleadoId,
+                    fechaHora = f.FechaHora
+                }).ToList();
+                string jsonBody = JsonConvert.SerializeObject(solicitudes);
+                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/biometricas/bulk", jsonBody, _authToken);
+                int? recibidas = JObject.Parse(response)["recibidas"]?.Value<int>();
+                return recibidas == solicitudes.Count;
             }
             catch (WebException ex)
             {
@@ -377,13 +384,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                         $"[ERROR API HTTP {statusCode} {statusDescription}]: {errorText}"
                     );
 
-                    throw new WebException(
-                        $"La API respondió HTTP {statusCode} ({statusDescription}). " +
-                        $"Detalle: {errorText}",
-                        ex,
-                        ex.Status,
-                        null
-                    );
+                    throw;
                 }
 
                 throw;
