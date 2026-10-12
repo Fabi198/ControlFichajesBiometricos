@@ -19,7 +19,7 @@ El sistema está optimizado para funcionar en segundo plano mediante la bandeja 
 * ✋ **Enrolamiento de Huellas Dactilares:** Interfaz gráfica interactiva con un selector de dedos (`SelectorDedosControl`) para capturar y enrolar plantillas biométricas por empleado.
 * 🎧 **Escucha Biométrica en Segundo Plano:** Módulo `LectorListenerForm` que corre minimizado en la barra de tareas (`MainTrayContext`) procesando fichadas al instante.
 * ⚡ **Almacenamiento Local (Offline First):** Integración con **SQLite** (`LocalDatabase`) para garantizar que las fichadas no se pierdan ante cortes de conexión.
-* 📡 **Sincronización mediante API REST:** Cliente HTTP (`ApiClient`) encargado de enviar las fichadas y sincronizar catálogos con el servidor central.
+* 📡 **Sincronización mediante API REST:** Cliente HTTP (`ApiClient`) conserva las fichadas sin conexión y envía lotes biométricos de hasta 500 eventos; la API determina Entrada/Salida usando el día calendario de cada evento.
 
 ---
 

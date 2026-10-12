@@ -68,7 +68,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
             {
                 conexion.Open();
-                string sql = "SELECT Id, EmpleadoId, FechaHora, TipoRegistro, Metodo FROM Fichada WHERE Sincronizado = 0";
+                string sql = "SELECT Id, EmpleadoId, FechaHora, TipoRegistro, Metodo FROM Fichada WHERE Sincronizado = 0 ORDER BY FechaHora, Id";
 
                 using (var cmd = new SQLiteCommand(sql, conexion))
                 using (var reader = cmd.ExecuteReader())
@@ -308,4 +308,3 @@ public class HorarioLaboral
     public TimeSpan HoraEntrada { get; set; }
     public TimeSpan HoraSalida { get; set; }
 }
-
