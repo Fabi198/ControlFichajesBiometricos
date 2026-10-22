@@ -17,13 +17,19 @@ namespace DevsFingerPrint.Infrastructure.Services
     public static class DispositivoConfigService
     {
         private static readonly string RutaCarpeta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DevsFingerPrint");
-        private static readonly string RutaArchivo = Path.Combine(RutaCarpeta, "config.dat");
+        private static readonly string RutaArchivo = Path.Combine(RutaCarpeta, "device-config.dat");
+        private static readonly string RutaArchivoAnterior = Path.Combine(RutaCarpeta, "config.dat");
 
         public static void GuardarConfiguracion(int sucursalId, string serialLector)
         {
+            GuardarConfiguracionEn(RutaCarpeta, sucursalId, serialLector);
+        }
+
+        internal static void GuardarConfiguracionEn(string folderPath, int sucursalId, string serialLector)
+        {
             try
             {
-                if (!Directory.Exists(RutaCarpeta)) Directory.CreateDirectory(RutaCarpeta);
+                Directory.CreateDirectory(folderPath);
 
                 var config = new ConfiguracionLocalDto
                 {
@@ -37,7 +43,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 byte[] bytesPlainText = Encoding.UTF8.GetBytes(jsonString);
                 byte[] bytesEncrypted = ProtectedData.Protect(bytesPlainText, null, DataProtectionScope.CurrentUser);
 
-                File.WriteAllBytes(RutaArchivo, bytesEncrypted);
+                File.WriteAllBytes(Path.Combine(folderPath, Path.GetFileName(RutaArchivo)), bytesEncrypted);
             }
             catch (Exception ex)
             {
@@ -47,19 +53,44 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public static ConfiguracionLocalDto LeerConfiguracion()
         {
+            return LeerConfiguracionDesde(RutaCarpeta);
+        }
+
+        internal static ConfiguracionLocalDto LeerConfiguracionDesde(string folderPath)
+        {
             try
             {
-                if (!File.Exists(RutaArchivo)) return null;
+                string rutaActual = Path.Combine(folderPath, Path.GetFileName(RutaArchivo));
+                string rutaAnterior = Path.Combine(folderPath, Path.GetFileName(RutaArchivoAnterior));
+                string ruta = File.Exists(rutaActual) ? rutaActual : rutaAnterior;
+                if (!File.Exists(ruta)) return null;
 
-                byte[] bytesEncrypted = File.ReadAllBytes(RutaArchivo);
+                byte[] bytesEncrypted = File.ReadAllBytes(ruta);
                 byte[] bytesPlainText = ProtectedData.Unprotect(bytesEncrypted, null, DataProtectionScope.CurrentUser);
 
                 string jsonString = Encoding.UTF8.GetString(bytesPlainText);
                 var serializer = new JavaScriptSerializer();
-                return serializer.Deserialize<ConfiguracionLocalDto>(jsonString);
+                var configuracion = serializer.Deserialize<ConfiguracionLocalDto>(jsonString);
+                if (configuracion == null ||
+                    (configuracion.SucursalId <= 0 && string.IsNullOrWhiteSpace(configuracion.SerialLector)))
+                {
+                    return null;
+                }
+
+                if (ruta == rutaAnterior)
+                {
+                    GuardarConfiguracionEn(folderPath, configuracion.SucursalId, configuracion.SerialLector);
+                }
+
+                return configuracion;
             }
-            catch
+            catch (Exception ex) when (
+                ex is CryptographicException ||
+                ex is IOException ||
+                ex is UnauthorizedAccessException ||
+                ex is ArgumentException)
             {
+                System.Diagnostics.Debug.WriteLine("[LOG Configuración local] No se pudo leer la configuración del dispositivo: " + ex.Message);
                 return null;
             }
         }

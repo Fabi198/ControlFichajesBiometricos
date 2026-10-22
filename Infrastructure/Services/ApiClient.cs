@@ -15,10 +15,17 @@ namespace DevsFingerPrint.Infrastructure.Services
     {
         private readonly string _baseUrl;
         private string _authToken;
+        private readonly Func<bool> _renovarSesion;
 
         public ApiClient(string baseUrl)
+            : this(baseUrl, null)
+        {
+        }
+
+        public ApiClient(string baseUrl, Func<bool> renovarSesion)
         {
             _baseUrl = baseUrl.TrimEnd('/');
+            _renovarSesion = renovarSesion;
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
         }
 
@@ -27,13 +34,12 @@ namespace DevsFingerPrint.Infrastructure.Services
             try
             {
                 string url = $"{_baseUrl}/api/auth/agente";
-                string jsonBody = "{\"clientId\":\"" + clientId + "\", \"clientSecret\":\"" + clientSecret + "\"}";
+                string jsonBody = JsonConvert.SerializeObject(new { clientId, clientSecret });
                 string responseString = RealizarPeticionSinAuth("POST", url, jsonBody);
 
                 if (!string.IsNullOrEmpty(responseString))
                 {
                     _authToken = ExtraerTokenDeJson(responseString);
-                    System.Diagnostics.Debug.WriteLine("TOKEN ACTUAL: " + _authToken);
                     return !string.IsNullOrEmpty(_authToken);
                 }
             }
@@ -84,25 +90,12 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err)
+                HttpStatusCode? statusCode = ObtenerCodigoEstado(ex);
+                if (statusCode.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)err.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)statusCode.Value}");
 
-                    try
-                    {
-                        using (var stream = err.GetResponseStream())
-                        using (var reader = new StreamReader(stream))
-                        {
-                            string errorBody = reader.ReadToEnd();
-                            System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR DETALLE]: {errorBody}");
-                        }
-                    }
-                    catch (Exception readEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[LOG ERROR] No se pudo leer el stream de error: {readEx.Message}");
-                    }
-
-                    if (err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                    if (statusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                     {
                         return EnviarHeartbeat();
                     }
@@ -131,7 +124,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     return ObtenerHuellas();
                 }
@@ -229,8 +222,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                HttpWebResponse err = ex.Response as HttpWebResponse;
-                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
                 {
                     if (IntentarRenovarSesion())
                     {
@@ -248,8 +240,8 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
             if (fichadas == null || fichadas.Count == 0 || fichadas.Count > 500) return false;
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
             try
             {
                 var solicitudes = fichadas.Select(f => new
@@ -264,11 +256,15 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     return EnviarFichadas(fichadas);
                 }
                 System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
+            }
+            catch (JsonException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"La API devolvió una confirmación de fichadas inválida: {ex.Message}");
             }
             return false;
         }
@@ -295,8 +291,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                HttpWebResponse err = ex.Response as HttpWebResponse;
-                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
                 {
                     if (IntentarRenovarSesion())
                     {
@@ -316,6 +311,11 @@ namespace DevsFingerPrint.Infrastructure.Services
         {
             try
             {
+                if (_renovarSesion != null)
+                {
+                    return _renovarSesion();
+                }
+
                 if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
                 {
                     return IniciarSesionAgente(clientId, clientSecret);
@@ -362,29 +362,11 @@ namespace DevsFingerPrint.Infrastructure.Services
             {
                 if (ex.Response is HttpWebResponse errorResponse)
                 {
-                    string errorText = string.Empty;
                     int statusCode = (int)errorResponse.StatusCode;
                     string statusDescription = errorResponse.StatusDescription;
-
-                    using (errorResponse)
-                    {
-                        Stream errorStream = errorResponse.GetResponseStream();
-
-                        if (errorStream != null)
-                        {
-                            using (errorStream)
-                            using (var reader = new StreamReader(errorStream))
-                            {
-                                errorText = reader.ReadToEnd();
-                            }
-                        }
-                    }
-
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[ERROR API HTTP {statusCode} {statusDescription}]: {errorText}"
-                    );
-
-                    throw;
+                    errorResponse.Close();
+                    System.Diagnostics.Debug.WriteLine($"[ERROR API HTTP {statusCode} {statusDescription}]");
+                    throw new ApiHttpException((HttpStatusCode)statusCode, statusDescription, ex);
                 }
 
                 throw;
@@ -477,7 +459,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     System.Diagnostics.Debug.WriteLine("[LOG SYNC] Token expirado (401), reintentando SincronizarSucursal()...");
                     return SincronizarSucursal();
@@ -636,6 +618,27 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             // Remueve caracteres nulos (\0), de control, espacios y normaliza a mayúsculas
             return new string(serial.Where(c => !char.IsControl(c) && c != '\0' && !char.IsWhiteSpace(c)).ToArray()).ToUpper();
+        }
+
+        private static HttpStatusCode? ObtenerCodigoEstado(WebException exception)
+        {
+            if (exception is ApiHttpException apiException)
+            {
+                return apiException.StatusCode;
+            }
+
+            return (exception.Response as HttpWebResponse)?.StatusCode;
+        }
+
+        private sealed class ApiHttpException : WebException
+        {
+            public HttpStatusCode StatusCode { get; }
+
+            public ApiHttpException(HttpStatusCode statusCode, string description, WebException innerException)
+                : base($"HTTP {(int)statusCode}: {description}", innerException, WebExceptionStatus.ProtocolError, null)
+            {
+                StatusCode = statusCode;
+            }
         }
     }
 }

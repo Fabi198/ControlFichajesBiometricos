@@ -11,11 +11,25 @@ namespace DevsFingerPrint.Infrastructure.Repositories
 {
     public class FichadaRepository : IFichadaRepository
     {
+        private readonly string _connectionString;
 
+        public FichadaRepository() : this(LocalDatabase.ConnectionString)
+        {
+        }
+
+        public FichadaRepository(string connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new ArgumentException("La cadena de conexión local es obligatoria.", nameof(connectionString));
+            }
+
+            _connectionString = connectionString;
+        }
 
         public void GuardarFichadaLocal(Fichada fichada)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 string sql = @"INSERT INTO Fichada (EmpleadoId, FechaHora, TipoRegistro, Metodo, Sincronizado) 
@@ -37,7 +51,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
         {
             var lista = new List<Huella>();
 
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 string sql = "SELECT Id, EmpleadoId, IndiceDedo, TemplateBiometrico, FechaRegistro FROM Huella";
@@ -65,7 +79,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
         {
             var lista = new List<Fichada>();
 
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 string sql = "SELECT Id, EmpleadoId, FechaHora, TipoRegistro, Metodo FROM Fichada WHERE Sincronizado = 0 ORDER BY FechaHora, Id";
@@ -92,7 +106,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
 
         public void MarcarComoSincronizadas(IEnumerable<int> idsFichadas)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 using (var transaccion = conexion.BeginTransaction())
@@ -114,44 +128,52 @@ namespace DevsFingerPrint.Infrastructure.Repositories
 
         public void SincronizarCatalogoEmpresa(IEnumerable<Empleado> empleados, IEnumerable<Huella> huellas)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 using (var transaccion = conexion.BeginTransaction())
                 {
                     // Limpiar catálogo previo e insertar el actualizado
-                    new SQLiteCommand("DELETE FROM Huella;", conexion, transaccion).ExecuteNonQuery();
-                    new SQLiteCommand("DELETE FROM Empleado;", conexion, transaccion).ExecuteNonQuery();
+                    using (var deleteHuellas = new SQLiteCommand("DELETE FROM Huella;", conexion, transaccion))
+                    using (var deleteEmpleados = new SQLiteCommand("DELETE FROM Empleado;", conexion, transaccion))
+                    {
+                        deleteHuellas.ExecuteNonQuery();
+                        deleteEmpleados.ExecuteNonQuery();
+                    }
 
                     foreach (var emp in empleados)
                     {
-                        var cmd = new SQLiteCommand(@"INSERT INTO Empleado (Id, EmpresaId, Legajo, DNI, CUIL, Nombre, Apellido, Departamento, Categoria, Sucursal, Horario, Activo) 
-                                                      VALUES (@Id, @EmpresaId, @Legajo, @DNI, @CUIL, @Nombre, @Apellido, @Departamento, @Categoria, @Sucursal, @Horario, @Activo)", conexion, transaccion);
-                        cmd.Parameters.AddWithValue("@Id", emp.Id);
-                        cmd.Parameters.AddWithValue("@EmpresaId", emp.EmpresaId);
-                        cmd.Parameters.AddWithValue("@Legajo", emp.Legajo ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@DNI", emp.DNI);
-                        cmd.Parameters.AddWithValue("@CUIL", emp.CUIL ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Nombre", emp.Nombre);
-                        cmd.Parameters.AddWithValue("@Apellido", emp.Apellido);
-                        cmd.Parameters.AddWithValue("@Departamento", emp.Departamento ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Categoria", emp.Categoria ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Sucursal", emp.Sucursal ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Horario", emp.Horario ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Activo", emp.Activo ? 1 : 0);
-                        cmd.ExecuteNonQuery();
+                        using (var cmd = new SQLiteCommand(@"INSERT INTO Empleado (Id, EmpresaId, Legajo, DNI, CUIL, Nombre, Apellido, Departamento, Categoria, Sucursal, Horario, Activo)
+                                                             VALUES (@Id, @EmpresaId, @Legajo, @DNI, @CUIL, @Nombre, @Apellido, @Departamento, @Categoria, @Sucursal, @Horario, @Activo)", conexion, transaccion))
+                        {
+                            cmd.Parameters.AddWithValue("@Id", emp.Id);
+                            cmd.Parameters.AddWithValue("@EmpresaId", emp.EmpresaId);
+                            cmd.Parameters.AddWithValue("@Legajo", emp.Legajo ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@DNI", emp.DNI);
+                            cmd.Parameters.AddWithValue("@CUIL", emp.CUIL ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@Nombre", emp.Nombre);
+                            cmd.Parameters.AddWithValue("@Apellido", emp.Apellido);
+                            cmd.Parameters.AddWithValue("@Departamento", emp.Departamento ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@Categoria", emp.Categoria ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@Sucursal", emp.Sucursal ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@Horario", emp.Horario ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@Activo", emp.Activo ? 1 : 0);
+                            cmd.ExecuteNonQuery();
+                        }
                     }
 
                     foreach (var h in huellas)
                     {
-                        var cmd = new SQLiteCommand(@"INSERT INTO Huella (Id, EmpleadoId, IndiceDedo, TemplateBiometrico, FechaRegistro) 
-                                                      VALUES (@Id, @EmpleadoId, @IndiceDedo, @TemplateBiometrico, @FechaRegistro)", conexion, transaccion);
-                        cmd.Parameters.AddWithValue("@Id", h.Id);
-                        cmd.Parameters.AddWithValue("@EmpleadoId", h.EmpleadoId);
-                        cmd.Parameters.AddWithValue("@IndiceDedo", h.IndiceDedo);
-                        cmd.Parameters.AddWithValue("@TemplateBiometrico", h.TemplateBiometrico);
-                        cmd.Parameters.AddWithValue("@FechaRegistro", h.FechaRegistro);
-                        cmd.ExecuteNonQuery();
+                        using (var cmd = new SQLiteCommand(@"INSERT INTO Huella (Id, EmpleadoId, IndiceDedo, TemplateBiometrico, FechaRegistro)
+                                                             VALUES (@Id, @EmpleadoId, @IndiceDedo, @TemplateBiometrico, @FechaRegistro)", conexion, transaccion))
+                        {
+                            cmd.Parameters.AddWithValue("@Id", h.Id);
+                            cmd.Parameters.AddWithValue("@EmpleadoId", h.EmpleadoId);
+                            cmd.Parameters.AddWithValue("@IndiceDedo", h.IndiceDedo);
+                            cmd.Parameters.AddWithValue("@TemplateBiometrico", h.TemplateBiometrico);
+                            cmd.Parameters.AddWithValue("@FechaRegistro", h.FechaRegistro);
+                            cmd.ExecuteNonQuery();
+                        }
                     }
 
                     transaccion.Commit();
@@ -169,7 +191,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
         {
             try
             {
-                using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+                using (var conexion = new SQLiteConnection(_connectionString))
                 {
                     conexion.Open();
 
@@ -202,7 +224,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
         // Obtiene la última fichada registrada localmente para un empleado específico
         public Fichada ObtenerUltimaFichada(int empleadoId)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 string query = @"SELECT Id, EmpleadoId, FechaHora, TipoRegistro, Metodo, Sincronizado 
@@ -238,7 +260,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
         // Obtiene el horario laboral teórico del empleado (configurado en base local)
         public HorarioLaboral ObtenerHorarioLaboral(int empleadoId)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 // Ajustá el nombre de la columna y tabla según tu esquema actual (ej: Empleados, Horario)
@@ -275,7 +297,7 @@ namespace DevsFingerPrint.Infrastructure.Repositories
 
         public string ObtenerDniPorEmpleadoId(int empleadoId)
         {
-            using (var conexion = new SQLiteConnection(LocalDatabase.ConnectionString))
+            using (var conexion = new SQLiteConnection(_connectionString))
             {
                 conexion.Open();
                 string query = @"SELECT DNI 

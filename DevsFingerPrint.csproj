@@ -137,9 +137,11 @@
     <Compile Include="Infrastructure\Data\LocalDatabase.cs" />
     <Compile Include="Infrastructure\Repositories\FichadaRepository.cs" />
     <Compile Include="Infrastructure\Services\ApiClient.cs" />
-    <Compile Include="Infrastructure\Services\BiometricService.cs" />
+    <Compile Include="Infrastructure\Services\BiometricService.cs" Condition=" '$(Configuration)' == 'Debug' " />
     <Compile Include="Infrastructure\Services\ConfigLocal.cs" />
     <Compile Include="Infrastructure\Services\CredentialStorage.cs" />
+    <Compile Include="Infrastructure\Services\DigitalPersonaBiometricService.cs" Condition=" '$(Configuration)' == 'Release' " />
+    <Compile Include="Infrastructure\Services\FichadaRules.cs" />
     <Compile Include="Presentation\EnrolarHuellaForm.cs">
       <SubType>Form</SubType>
     </Compile>

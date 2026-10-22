@@ -1,4 +1,4 @@
-﻿using DevsFingerPrint.Domain.Interfaces;
+using DevsFingerPrint.Domain.Interfaces;
 using DevsFingerPrint.Domain.Models;
 using DevsFingerPrint.Infrastructure.Data;
 using DevsFingerPrint.Infrastructure.Repositories;
@@ -26,23 +26,39 @@ namespace DevsFingerPrint.Presentation
         private int sincronizacionEnCurso;
 
         private ContextMenuStrip contextMenu;
+#if DEBUG
         private ToolStripMenuItem menuSimularFichada;
+#endif
 
         public MainTrayContext(ApiClient apiClient)
         {
-            System.Diagnostics.Debug.WriteLine("[LOG MainTray MOCK] Inicializando MainTrayContext...");
+            System.Diagnostics.Debug.WriteLine("[LOG MainTray] Inicializando MainTrayContext...");
             LocalDatabase.Inicializar();
 
             _apiClient = apiClient;
+            lectorFormularioOculto = new LectorListenerForm();
+            lectorFormularioOculto.CreateControl();
             fichadaRepository = new FichadaRepository();
+#if DEBUG
             biometricService = new BiometricService(_apiClient);
+#else
+            biometricService = new DigitalPersonaBiometricService();
+#endif
 
             huellasCargadas = new List<Huella>();
 
             contextMenu = new ContextMenuStrip();
 
-            // Opción de enrolamiento adaptada para mock
-            contextMenu.Items.Add("Enrolar nueva huella (Mock)", null, EnrolarNuevoEmpleado);
+            contextMenu.Items.Add(
+#if DEBUG
+                biometricService is BiometricService ? "Enrolar nueva huella (Mock)" : "Enrolar nueva huella",
+#else
+                "Enrolar nueva huella",
+#endif
+                null,
+                EnrolarNuevoEmpleado);
+
+#if DEBUG
             contextMenu.Items.Add("-");
 
             // Submenú para simular fichadas por empleado específico desde el tray
@@ -51,6 +67,9 @@ namespace DevsFingerPrint.Presentation
 
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Estado del Lector (Mock)", null, MostrarEstadoLector);
+#else
+            contextMenu.Items.Add("Estado del lector biométrico", null, MostrarEstadoLector);
+#endif
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Salir", null, SalirAplicacion);
 
@@ -59,7 +78,11 @@ namespace DevsFingerPrint.Presentation
                 Icon = Properties.Resources.circularColor,
                 ContextMenuStrip = contextMenu,
                 Visible = true,
+#if DEBUG
                 Text = "DevsFingerPrint - Control de Fichajes (Modo Mock)"
+#else
+                Text = "DevsFingerPrint - Lector DigitalPersona"
+#endif
             };
 
             // Eventos del servicio biométrico
@@ -73,13 +96,12 @@ namespace DevsFingerPrint.Presentation
             syncTimer.Interval = 60000 * 20;
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
 
-            lectorFormularioOculto = new LectorListenerForm();
-            lectorFormularioOculto.CreateControl();
-
             CargarHuellasLocales();
 
+#if DEBUG
             // Construir el submenú dinámico de empleados para simular fichadas
             ConstruirMenuEmpleadosSimulacion();
+#endif
 
             arranqueLectorTimer = new System.Windows.Forms.Timer();
             arranqueLectorTimer.Interval = 200;
@@ -89,7 +111,13 @@ namespace DevsFingerPrint.Presentation
                 arranqueLectorTimer.Dispose();
                 arranqueLectorTimer = null;
 
-                biometricService.IniciarLectura();
+                if (!biometricService.IniciarLectura())
+                {
+                    MostrarNotificacion(
+                        "Lector biométrico no disponible",
+                        "Conecte el lector U.are.U 4500 para habilitar el fichaje.",
+                        ToolTipIcon.Error);
+                }
             };
             arranqueLectorTimer.Start();
 
@@ -98,6 +126,7 @@ namespace DevsFingerPrint.Presentation
             InicializarHeartbeat();
         }
 
+#if DEBUG
         private void ConstruirMenuEmpleadosSimulacion()
         {
             menuSimularFichada.DropDownItems.Clear();
@@ -129,6 +158,7 @@ namespace DevsFingerPrint.Presentation
                 menuSimularFichada.DropDownItems.Add("(Error al cargar empleados)").Enabled = false;
             }
         }
+#endif
 
         private void SincronizarConServidorAsync()
         {
@@ -154,7 +184,8 @@ namespace DevsFingerPrint.Presentation
                     fichadaRepository.SincronizarCatalogoEmpresa(listaEmpleados, listaHuellas);
                     CargarHuellasLocales();
 
-                    // Refrescamos el submenú del tray por si se agregaron nuevos empleados
+                    // Refresca el menú de simulación solo en compilaciones de depuración.
+#if DEBUG
                     if (menuSimularFichada.Owner?.InvokeRequired == true)
                     {
                         menuSimularFichada.Owner.Invoke(new Action(ConstruirMenuEmpleadosSimulacion));
@@ -163,6 +194,7 @@ namespace DevsFingerPrint.Presentation
                     {
                         ConstruirMenuEmpleadosSimulacion();
                     }
+#endif
                 }
 
                 var pendientes = fichadaRepository.ObtenerFichadasPendientes();
@@ -198,12 +230,16 @@ namespace DevsFingerPrint.Presentation
         {
             var locales = fichadaRepository.ObtenerHuellasLocales();
             huellasCargadas = new List<Huella>(locales);
+#if DEBUG
             System.Diagnostics.Debug.WriteLine($"\n[LOG Biometric MOCK] Cache local actualizada: {huellasCargadas.Count} huella(s) en memoria.");
+#else
+            System.Diagnostics.Debug.WriteLine($"\n[LOG Biometric] Cache local actualizada: {huellasCargadas.Count} huella(s) en memoria.");
+#endif
         }
 
         private void OnHuellaCapturada(Fmd fmdCapturado)
         {
-            System.Diagnostics.Debug.WriteLine($"\n[LOG Biometric MOCK] --- Huella capturada o simulada ---");
+            System.Diagnostics.Debug.WriteLine("\n[LOG Biometric] Huella capturada.");
             if (huellasCargadas == null || huellasCargadas.Count == 0)
             {
                 OnHuellaNoReconocida();
@@ -225,56 +261,38 @@ namespace DevsFingerPrint.Presentation
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric SUCCESS] ¡Match encontrado! Empleado ID identificado: {empleadoId}");
 
             var ultimaFichadaUsuario = fichadaRepository.ObtenerUltimaFichada(empleadoId);
-            if (ultimaFichadaUsuario != null)
+            DateTime ahora = DateTime.Now;
+            if (FichadaRules.EsDuplicada(ultimaFichadaUsuario, ahora))
             {
-                double minutosTranscurridos = (DateTime.Now - ultimaFichadaUsuario.FechaHora).TotalMinutes;
-                if (minutosTranscurridos < 5)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada ignorada por duplicidad reciente ({minutosTranscurridos:N1} min).");
-                    System.Media.SystemSounds.Exclamation.Play();
-                    MostrarNotificacion("Fichada Duplicada", "Ya registró su asistencia hace pocos minutos.", ToolTipIcon.Warning);
-                    return;
-                }
+                double minutosTranscurridos = (ahora - ultimaFichadaUsuario.FechaHora).TotalMinutes;
+                System.Diagnostics.Debug.WriteLine($"[LOG Biometric] Fichada ignorada por duplicidad reciente ({minutosTranscurridos:N1} min).");
+                System.Media.SystemSounds.Exclamation.Play();
+                MostrarNotificacion("Fichada Duplicada", "Ya registró su asistencia hace pocos minutos.", ToolTipIcon.Warning);
+                return;
             }
 
-            string tipoRegistro = DeterminarTipoRegistro(empleadoId, ultimaFichadaUsuario);
+            string tipoRegistro = FichadaRules.DeterminarTipoRegistro(ultimaFichadaUsuario, ahora);
 
             var nuevaFichada = new Fichada
             {
                 EmpleadoId = empleadoId,
-                FechaHora = DateTime.Now,
+                FechaHora = ahora,
                 TipoRegistro = tipoRegistro,
                 Metodo = "Biometrico",
                 Sincronizado = false
             };
 
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
+#if DEBUG
             string dniEmpleado = fichadaRepository.ObtenerDniPorEmpleadoId(empleadoId) ?? empleadoId.ToString();
+#endif
 
             System.Media.SystemSounds.Asterisk.Play();
+#if DEBUG
             MostrarNotificacion("Fichada Registrada (Mock)", $"DNI: {dniEmpleado} - {tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
-        }
-
-        private string DeterminarTipoRegistro(int empleadoId, Fichada ultimaFichada)
-        {
-            var horario = fichadaRepository.ObtenerHorarioLaboral(empleadoId);
-            DateTime ahora = DateTime.Now;
-
-            if (horario != null && ultimaFichada != null)
-            {
-                DateTime fechaUltima = ultimaFichada.FechaHora;
-                if (fechaUltima.Date < ahora.Date)
-                {
-                    return "Entrada";
-                }
-            }
-
-            if (ultimaFichada != null)
-            {
-                return ultimaFichada.TipoRegistro == "Entrada" ? "Salida" : "Entrada";
-            }
-
-            return "Entrada";
+#else
+            MostrarNotificacion("Fichada Registrada", $"{tipoRegistro} a las {nuevaFichada.FechaHora:HH:mm:ss}", ToolTipIcon.Info);
+#endif
         }
 
         private void OnHuellaNoReconocida()
@@ -288,7 +306,17 @@ namespace DevsFingerPrint.Presentation
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric Status]: {mensaje}");
             if (notifyIcon != null)
             {
-                notifyIcon.Text = $"DevsFingerPrint (Mock): {mensaje}";
+#if DEBUG
+                string texto = $"DevsFingerPrint (Mock): {mensaje}";
+#else
+                string texto = $"DevsFingerPrint: {mensaje}";
+#endif
+                if (!string.IsNullOrEmpty(texto) && texto.Length > 63)
+                {
+                    texto = texto.Substring(0, 63);
+                }
+
+                notifyIcon.Text = texto;
             }
         }
 
@@ -299,37 +327,54 @@ namespace DevsFingerPrint.Presentation
 
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
+#if DEBUG
             int cantidad = huellasCargadas != null ? huellasCargadas.Count : 0;
             MessageBox.Show($"[MODO MOCK] Huellas en caché: {cantidad}\nSimulador de Lector Activo", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+#else
+            var lector = biometricService.ObtenerLectorActual();
+            if (lector == null)
+            {
+                MessageBox.Show(
+                    "No hay un lector DigitalPersona conectado. Conecte el U.are.U 4500 para enrolar o fichar.",
+                    "DevsFingerPrint - Estado",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            MessageBox.Show(
+                $"Lector: {lector.Description.Name}\nNúmero de serie: {lector.Description.SerialNumber}",
+                "DevsFingerPrint - Estado",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+#endif
         }
 
         private void EnrolarNuevoEmpleado(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("[LOG Enrolar MOCK] Abriendo formulario de enrolamiento simulado...");
+            System.Diagnostics.Debug.WriteLine("[LOG Enrolar] Abriendo formulario de enrolamiento.");
             biometricService.DetenerLectura();
 
             try
             {
-                // Pasamos null ya que no hay lector físico conectado; el formulario usará el botón de simulación
-                Reader lectorFisico = null;
-
                 List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
                 var huellasLocales = fichadaRepository.ObtenerHuellasLocales();
 
-                using (var frmEnrolar = new EnrolarHuellaForm(lectorFisico, listaEmpleados, huellasLocales))
+                using (var frmEnrolar = new EnrolarHuellaForm(biometricService, listaEmpleados, huellasLocales))
                 {
                     if (frmEnrolar.ShowDialog() == DialogResult.OK && frmEnrolar.HuellaCapturada != null)
                     {
                         Huella nuevaHuella = frmEnrolar.HuellaCapturada;
                         int indiceDedo = frmEnrolar.IndiceDedoSeleccionado;
 
-                        System.Diagnostics.Debug.WriteLine($"[LOG Enrolar MOCK] Enviando nueva huella a la API para EmpleadoId: {nuevaHuella.EmpleadoId}...");
+                        System.Diagnostics.Debug.WriteLine($"[LOG Enrolar] Enviando template para empleado ID {nuevaHuella.EmpleadoId}.");
 
                         bool subida = _apiClient.GuardarHuella(nuevaHuella, indiceDedo);
 
                         if (subida)
                         {
-                            MostrarNotificacion("Enrolamiento Exitoso", "La huella simulada fue guardada correctamente.", ToolTipIcon.Info);
+                            MostrarNotificacion("Enrolamiento exitoso", "La huella fue guardada correctamente.", ToolTipIcon.Info);
+                            CargarHuellasLocales();
                             EjecutarSincronizacionServidor();
                         }
                         else
@@ -354,6 +399,7 @@ namespace DevsFingerPrint.Presentation
         {
             System.Diagnostics.Debug.WriteLine("[LOG MainTray] Cerrando aplicación.");
             biometricService.DetenerLectura();
+            (biometricService as IDisposable)?.Dispose();
             DetenerHeartbeat();
 
             if (lectorFormularioOculto != null && !lectorFormularioOculto.IsDisposed)

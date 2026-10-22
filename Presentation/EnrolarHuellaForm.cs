@@ -1,12 +1,12 @@
-﻿using DevsFingerPrint.Domain.Models;
-using DPUruNet;
+using DevsFingerPrint.Domain.Interfaces;
+using DevsFingerPrint.Domain.Models;
+using DevsFingerPrint.Infrastructure.Services;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Linq;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace DevsFingerPrint.Presentation
@@ -18,9 +18,9 @@ namespace DevsFingerPrint.Presentation
 
         private int frameActualContador = 0;
         private int frameLimiteMaximo = 0;
+        private bool lectorNoDisponible;
 
-        private Reader _reader;
-        private List<Fmd> _enrollmentFmds;
+        private readonly IBiometricService _biometricService;
         private List<Empleado> _todosEmpleados;
         private List<Huella> _todasLasHuellasLocales;
         private HashSet<int> _empleadosConHuellaIds;
@@ -40,7 +40,9 @@ namespace DevsFingerPrint.Presentation
 
         private Panel cardPanel;
         private Button btnCancelar;
+#if DEBUG
         private Button btnSimularMuestra; // Botón físico/visual para simular las 4 muestras en modo mock
+#endif
         private PictureBox pbManos;
         private ComboBox cbEmpleados;
         private PictureBox pbLogo;
@@ -67,16 +69,22 @@ namespace DevsFingerPrint.Presentation
             { 1, new Rectangle(785, 310, 60, 60) }
         };
 
-        public EnrolarHuellaForm(Reader reader, IEnumerable<Empleado> listaEmpleados, IEnumerable<Huella> huellasLocales = null)
+        public EnrolarHuellaForm(IBiometricService biometricService, IEnumerable<Empleado> listaEmpleados, IEnumerable<Huella> huellasLocales = null)
         {
-            _reader = reader;
+            _biometricService = biometricService ?? throw new ArgumentNullException(nameof(biometricService));
             _todosEmpleados = listaEmpleados != null ? new List<Empleado>(listaEmpleados) : new List<Empleado>();
             _todasLasHuellasLocales = huellasLocales != null ? new List<Huella>(huellasLocales) : new List<Huella>();
 
             _empleadosConHuellaIds = new HashSet<int>(_todasLasHuellasLocales.Select(h => h.EmpleadoId));
 
             InitializeComponent();
-            lblTitulo.Text = "Enrolamiento de Empleado (Mock)";
+#if DEBUG
+            lblTitulo.Text = _biometricService is BiometricService
+                ? "Enrolamiento de Empleado (Mock)"
+                : "Enrolamiento de Empleado";
+#else
+            lblTitulo.Text = "Enrolamiento de Empleado";
+#endif
             lblTitulo.ForeColor = Color.White;
             lblTitulo.Font = new Font("Segoe UI", 12, FontStyle.Bold);
             lblTitulo.TextAlign = ContentAlignment.MiddleCenter;
@@ -103,7 +111,13 @@ namespace DevsFingerPrint.Presentation
 
             lblInstrucciones.ForeColor = Color.White;
             lblInstrucciones.BackColor = Color.Transparent;
-            lblInstrucciones.Text = _reader == null ? "Modo Mock: Haga clic en 'Simular Captura'" : "Apoye el dedo en el lector";
+#if DEBUG
+            lblInstrucciones.Text = _biometricService is BiometricService
+                ? "Modo Mock: Haga clic en 'Simular Captura'"
+                : "Apoye el dedo en el lector";
+#else
+            lblInstrucciones.Text = "Apoye el dedo en el lector";
+#endif
             lblInstrucciones.TextAlign = ContentAlignment.MiddleCenter;
             lblInstrucciones.Location = new Point(
                 pbHuellaAnim.Left + (pbHuellaAnim.Width - lblInstrucciones.Width) / 2,
@@ -135,17 +149,19 @@ namespace DevsFingerPrint.Presentation
                 this.DialogResult = DialogResult.Cancel;
             };
 
-            // Configurar el botón de simulación si estamos sin hardware real
-            if (_reader == null)
+#if DEBUG
+            if (_biometricService is BiometricService)
             {
                 ConfigurarBotonSimulacion();
             }
+#endif
 
             ConfigurarVentana();
             FiltrarYCargarEmpleados();
             IniciarSecuenciaEnrolamiento();
         }
 
+#if DEBUG
         private void ConfigurarBotonSimulacion()
         {
             btnSimularMuestra = new Button();
@@ -167,46 +183,19 @@ namespace DevsFingerPrint.Presentation
 
         private void BtnSimularMuestra_Click(object sender, EventArgs e)
         {
-            // Simulamos el flujo de llegada de una captura parcial
-            muestraActual++;
-            if (muestraActual > 4) muestraActual = 1;
-
-            if (muestraActual < 4)
-            {
-                System.Media.SystemSounds.Hand.Play();
-                ActualizarProgresoHuella(muestraActual);
-                lblInstrucciones.Text = $"Muestra simulada ({muestraActual} de 4)";
-            }
-            else
-            {
-                // Cuarta y última muestra: genera template falso y finaliza con éxito
-                ActualizarProgresoHuella(4);
-                lblInstrucciones.Text = "¡Huella registrada con éxito (Mock)!";
-
-                if (!ValidarSelecciones()) return;
-
-                int empId = Convert.ToInt32(cbEmpleados.SelectedValue);
-                byte[] dummyBytes = new byte[200];
-                new Random().NextBytes(dummyBytes);
-                string templateBase64 = Convert.ToBase64String(dummyBytes);
-
-                EmpleadoIdSeleccionado = empId;
-                HuellaCapturada = new Huella
-                {
-                    EmpleadoId = empId,
-                    IndiceDedo = IndiceDedoSeleccionado,
-                    TemplateBiometrico = templateBase64
-                };
-
-                MessageBox.Show("¡Huella enrolada exitosamente (Mock)!", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-            }
+            ((BiometricService)_biometricService).SimularLecturaDedo();
         }
+#endif
 
         private void ConfigurarVentana()
         {
-            this.Text = "Enrolamiento Biométrico (Mock)";
+#if DEBUG
+            this.Text = _biometricService is BiometricService
+                ? "Enrolamiento Biométrico (Mock)"
+                : "Enrolamiento Biométrico";
+#else
+            this.Text = "Enrolamiento Biométrico";
+#endif
             this.Size = new Size(540, 660);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -446,35 +435,94 @@ namespace DevsFingerPrint.Presentation
 
         private void IniciarSecuenciaEnrolamiento()
         {
-            if (_reader == null) return; // Si es null (mock), no intenta abrir hardware real
-
-            _enrollmentFmds = new List<Fmd>();
-            _reader.On_Captured += Reader_OnCaptured;
-
-            Constants.ResultCode resOpen = _reader.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);
-            if (resOpen != Constants.ResultCode.DP_SUCCESS)
+            _biometricService.OnProgresoEnrolamiento += ProgresoEnrolamientoCambiado;
+            _biometricService.IniciarEnrolamiento();
+#if DEBUG
+            if (_biometricService is BiometricService)
             {
-                _reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                return;
+            }
+#endif
+            if (_biometricService.ObtenerLectorActual() == null)
+            {
+                lectorNoDisponible = true;
+                lblInstrucciones.Text = "Conecte el lector DigitalPersona para comenzar.";
+                pbManos.Enabled = false;
+                cbEmpleados.Enabled = false;
+                rbConHuella.Enabled = false;
+                rbSinHuella.Enabled = false;
+                MessageBox.Show(
+                    "No se pudo abrir un lector DigitalPersona. Conecte el U.are.U 4500 y vuelva a intentar.",
+                    "Lector biométrico no disponible",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
         }
 
-        private void Reader_OnCaptured(CaptureResult captureResult)
+        private void ProgresoEnrolamientoCambiado(int progreso)
         {
-            // Lógica original de hardware si llegase a usarse
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<int>(ProgresoEnrolamientoCambiado), progreso);
+                return;
+            }
+
+            muestraActual = progreso;
+            ActualizarProgresoHuella(progreso);
+            if (progreso <= 0)
+            {
+                lblInstrucciones.Text = "Apoye el mismo dedo en el lector cuatro veces.";
+                return;
+            }
+
+            System.Media.SystemSounds.Hand.Play();
+            if (progreso < 4)
+            {
+                lblInstrucciones.Text = $"Muestra {progreso} de 4. Levante y vuelva a apoyar el mismo dedo.";
+                return;
+            }
+
+            if (!ValidarSelecciones())
+            {
+                _biometricService.CancelarEnrolamiento();
+                return;
+            }
+
+            string templateBase64 = _biometricService.ObtenerTemplateBase64Resultado();
+            if (string.IsNullOrWhiteSpace(templateBase64))
+            {
+                MessageBox.Show(
+                    "No se pudo crear un template biométrico válido. Vuelva a intentar el enrolamiento.",
+                    "Error de enrolamiento",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                _biometricService.CancelarEnrolamiento();
+                return;
+            }
+
+            int empleadoId = Convert.ToInt32(cbEmpleados.SelectedValue);
+            EmpleadoIdSeleccionado = empleadoId;
+            HuellaCapturada = new Huella
+            {
+                EmpleadoId = empleadoId,
+                IndiceDedo = IndiceDedoSeleccionado,
+                TemplateBiometrico = templateBase64
+            };
+
+            lblInstrucciones.Text = "Huella capturada correctamente.";
+            DialogResult = DialogResult.OK;
+            Close();
         }
 
         private void DetenerCaptura()
         {
-            if (_reader != null)
-            {
-                try
-                {
-                    _reader.On_Captured -= Reader_OnCaptured;
-                    _reader.CancelCapture();
-                    _reader.Dispose();
-                }
-                catch { }
-            }
+            _biometricService.OnProgresoEnrolamiento -= ProgresoEnrolamientoCambiado;
+            _biometricService.CancelarEnrolamiento();
         }
 
         private void InitializeComponent()
@@ -722,6 +770,13 @@ namespace DevsFingerPrint.Presentation
 
         private void EnrolarHuellaForm_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (lectorNoDisponible)
+            {
+                DetenerCaptura();
+                DialogResult = DialogResult.Cancel;
+                return;
+            }
+
             if (this.DialogResult == DialogResult.OK)
             {
                 DetenerCaptura();

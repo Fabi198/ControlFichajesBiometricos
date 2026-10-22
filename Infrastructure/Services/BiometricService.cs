@@ -15,7 +15,11 @@ namespace DevsFingerPrint.Infrastructure.Services
         private readonly ApiClient _apiClient;
 
         // Eventos requeridos por la interfaz
-        public event Action<Fmd> OnHuellaCapturada;
+        public event Action<Fmd> OnHuellaCapturada
+        {
+            add { }
+            remove { }
+        }
         public event Action<int> OnEmpleadoIdentificado;
         public event Action OnHuellaNoReconocida;
         public event Action<string> OnEstadoCambiado;

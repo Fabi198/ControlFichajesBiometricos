@@ -11,8 +11,23 @@ namespace DevsFingerPrint.Infrastructure.Data
     public class LocalDatabase
     {
         // Modificado: Ahora la base de datos se aloja en una ubicación segura y protegida del sistema (ProgramData)
-        private static string dbPath = ObtenerRutaSeguraDb();
-        public static string ConnectionString => $"Data Source={dbPath};Version=3;";
+        private static readonly string dbPath = ObtenerRutaSeguraDb();
+        public static string ConnectionString => CrearConnectionString(dbPath);
+
+        public static string CrearConnectionString(string databasePath, bool pooling = true)
+        {
+            if (string.IsNullOrWhiteSpace(databasePath))
+            {
+                throw new ArgumentException("La ruta de la base de datos es obligatoria.", nameof(databasePath));
+            }
+
+            return new SQLiteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Version = 3,
+                Pooling = pooling
+            }.ConnectionString;
+        }
 
         private static string ObtenerRutaSeguraDb()
         {
@@ -32,12 +47,28 @@ namespace DevsFingerPrint.Infrastructure.Data
 
         public static void Inicializar()
         {
-            if (!File.Exists(dbPath))
+            Inicializar(dbPath);
+        }
+
+        public static void Inicializar(string databasePath)
+        {
+            if (string.IsNullOrWhiteSpace(databasePath))
             {
-                SQLiteConnection.CreateFile(dbPath);
+                throw new ArgumentException("La ruta de la base de datos es obligatoria.", nameof(databasePath));
             }
 
-            using (var conexion = new SQLiteConnection(ConnectionString))
+            string directorio = Path.GetDirectoryName(databasePath);
+            if (!string.IsNullOrEmpty(directorio))
+            {
+                Directory.CreateDirectory(directorio);
+            }
+
+            if (!File.Exists(databasePath))
+            {
+                SQLiteConnection.CreateFile(databasePath);
+            }
+
+            using (var conexion = new SQLiteConnection(CrearConnectionString(databasePath, pooling: false)))
             {
                 conexion.Open();
 
