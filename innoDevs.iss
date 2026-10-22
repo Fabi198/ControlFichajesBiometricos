@@ -1,28 +1,36 @@
+#define DesktopDir GetEnv("USERPROFILE") + "\Desktop"
+#define UareUPackageDir GetEnv("UAREU_PACKAGE_DIR")
+
+#if UareUPackageDir == ""
+  #error "Set UAREU_PACKAGE_DIR to the authorized U.are.U package directory before compiling."
+#endif
+
 [Setup]
 AppName=DevsFingerPrint - Control de Accesos
-AppVersion=1.0.0
+AppVersion=1.0.1
 DefaultDirName={autopf}\DevsFingerPrint\Control de Accesos
 DefaultGroupName=DevsFingerPrint
 PrivilegesRequired=admin
-OutputDir=userdocs:\DevsFingerPrintOutput
-OutputBaseFilename=DevsFingerPrint_Control_de_Accesos_Setup_v1.0.0
+ArchitecturesAllowed=x64os
+ArchitecturesInstallIn64BitMode=x64os
+OutputDir={#DesktopDir}\DevsFingerPrint_Instalador
+OutputBaseFilename=DevsFingerPrint_Control_de_Accesos_Setup_v1.0.1
+LicenseFile="{#UareUPackageDir}\Docs\EULA SDK.rtf"
 Compression=lzma
 SolidCompression=yes
 CloseApplications=yes
+Uninstallable=yes
 
 [Files]
-; Copia tu app compilada y las DLLs necesarias
-Source: "C:\Users\ferre\OneDrive\Documentos\.Devs\App\DevsFingerPrint\bin\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Relative to this script so the installer can be built from any checkout path.
+Source: "bin\Release\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Bundle only the authorized x64 Runtime Environment, not the SDK development tools.
+Source: "{#UareUPackageDir}\RTE\x64\*"; DestDir: "{tmp}\UareU_RTE"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
 
 [Run]
-; 1. Asegura la habilitación de .NET 3.5 en Windows con DISM
-Filename: "dism.exe"; Parameters: "/online /enable-feature /featurename:NetFx3 /all /norestart"; StatusMsg: "Verificando el entorno de ejecución de .NET Framework 3.5..."; Flags: runhidden waituntilterminated
-
-; 2. Crea una Tarea Programada para que la app inicie automáticamente al hacer logon con privilegios altos
-Filename: "schtasks.exe"; Parameters: "/create /tn ""DevsFingerPrintControldeAccesos"" /tr ""'{app}\DevsFingerPrint.exe'"" /sc ONLOGON /rl HIGHEST /f"; StatusMsg: "Configurando inicio automático persistente..."; Flags: runhidden
-
-; 3. Inicia la aplicación de inmediato al terminar la instalación
-Filename: "{app}\DevsFingerPrint.exe"; Description: "Iniciar Control de Accesos"; Flags: nowait postinstall skipifsilent
+Filename: "{tmp}\UareU_RTE\setup.exe"; StatusMsg: "Instalando el runtime oficial del lector DigitalPersona..."; Flags: waituntilterminated; Check: not IsUareURTEInstalled
+Filename: "schtasks.exe"; Parameters: "/create /tn ""DevsFingerPrintControldeAccesos"" /tr ""'{app}\DevsFingerPrint.exe'"" /sc ONLOGON /rl HIGHEST /f"; StatusMsg: "Configurando inicio automático persistente..."; Flags: runhidden; Check: IsUareURTEInstalled
+Filename: "{app}\DevsFingerPrint.exe"; Description: "Iniciar Control de Accesos"; Flags: nowait postinstall skipifsilent; Check: IsUareURTEInstalled
 
 [UninstallRun]
 ; Elimina la Tarea Programada limpiamente al desinstalar
@@ -35,6 +43,10 @@ Name: "{autodesktop}\Control de Accesos"; Filename: "{app}\DevsFingerPrint.exe";
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
-[UninstallDelete]
-; Borra la carpeta de configuración y credenciales de AppData al desinstalar
-Type: filesandordirs; Name: "{userappdata}\DevsFingerPrint"
+[Code]
+function IsUareURTEInstalled: Boolean;
+begin
+  Result := RegKeyExists(
+    HKLM64,
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{410EB00B-D5D8-49E8-AAB8-05A0C553DBA0}');
+end;

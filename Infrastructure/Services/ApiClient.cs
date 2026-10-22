@@ -15,10 +15,17 @@ namespace DevsFingerPrint.Infrastructure.Services
     {
         private readonly string _baseUrl;
         private string _authToken;
+        private readonly Func<bool> _renovarSesion;
 
         public ApiClient(string baseUrl)
+            : this(baseUrl, null)
+        {
+        }
+
+        public ApiClient(string baseUrl, Func<bool> renovarSesion)
         {
             _baseUrl = baseUrl.TrimEnd('/');
+            _renovarSesion = renovarSesion;
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
         }
 
@@ -27,13 +34,12 @@ namespace DevsFingerPrint.Infrastructure.Services
             try
             {
                 string url = $"{_baseUrl}/api/auth/agente";
-                string jsonBody = "{\"clientId\":\"" + clientId + "\", \"clientSecret\":\"" + clientSecret + "\"}";
+                string jsonBody = JsonConvert.SerializeObject(new { clientId, clientSecret });
                 string responseString = RealizarPeticionSinAuth("POST", url, jsonBody);
 
                 if (!string.IsNullOrEmpty(responseString))
                 {
                     _authToken = ExtraerTokenDeJson(responseString);
-                    System.Diagnostics.Debug.WriteLine("TOKEN ACTUAL: " + _authToken);
                     return !string.IsNullOrEmpty(_authToken);
                 }
             }
@@ -84,29 +90,16 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                // Si vuelve a dar 400, acá podemos capturar la respuesta exacta del servidor para leer el mensaje de error que manda la API
-                if (ex.Response is HttpWebResponse err)
+                HttpStatusCode? statusCode = ObtenerCodigoEstado(ex);
+                if (statusCode.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)err.StatusCode} - {err.StatusDescription}");
+                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)statusCode.Value}");
 
-                    try
+                    if (statusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                     {
-                        using (var reader = new StreamReader(err.GetResponseStream()))
-                        {
-                            string errorBody = reader.ReadToEnd();
-                            System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR DETALLE]: {errorBody}");
-                        }
-                    }
-                    catch { }
-
-                    if (err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
-                    {
-                        System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Token expirado (401), renovando sesión y reintentando...");
                         return EnviarHeartbeat();
                     }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] WebException al enviar heartbeat: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -131,7 +124,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     return ObtenerHuellas();
                 }
@@ -229,8 +222,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                HttpWebResponse err = ex.Response as HttpWebResponse;
-                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
                 {
                     if (IntentarRenovarSesion())
                     {
@@ -248,20 +240,31 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
+            if (fichadas == null || fichadas.Count == 0 || fichadas.Count > 500) return false;
             if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
             try
             {
-                string jsonBody = JsonConvert.SerializeObject(fichadas);
-                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/bulk", jsonBody, _authToken);
-                return !string.IsNullOrEmpty(response);
+                var solicitudes = fichadas.Select(f => new
+                {
+                    empleadoId = f.EmpleadoId,
+                    fechaHora = f.FechaHora
+                }).ToList();
+                string jsonBody = JsonConvert.SerializeObject(solicitudes);
+                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/biometricas/bulk", jsonBody, _authToken);
+                int? recibidas = JObject.Parse(response)["recibidas"]?.Value<int>();
+                return recibidas == solicitudes.Count;
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     return EnviarFichadas(fichadas);
                 }
                 System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
+            }
+            catch (JsonException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"La API devolvió una confirmación de fichadas inválida: {ex.Message}");
             }
             return false;
         }
@@ -288,8 +291,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                HttpWebResponse err = ex.Response as HttpWebResponse;
-                if (err != null && err.StatusCode == HttpStatusCode.Unauthorized)
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
                 {
                     if (IntentarRenovarSesion())
                     {
@@ -309,6 +311,11 @@ namespace DevsFingerPrint.Infrastructure.Services
         {
             try
             {
+                if (_renovarSesion != null)
+                {
+                    return _renovarSesion();
+                }
+
                 if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
                 {
                     return IniciarSesionAgente(clientId, clientSecret);
@@ -329,7 +336,8 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             if (!string.IsNullOrEmpty(token))
             {
-                request.Headers.Add("Authorization", "Bearer " + token);
+                // Forma correcta para HttpWebRequest en .NET Framework
+                request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
             }
 
             if (!string.IsNullOrEmpty(jsonBody) && (metodo == "POST" || metodo == "PUT"))
@@ -342,10 +350,26 @@ namespace DevsFingerPrint.Infrastructure.Services
                 }
             }
 
-            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-            using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+            try
             {
-                return reader.ReadToEnd();
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+                {
+                    return reader.ReadToEnd();
+                }
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse errorResponse)
+                {
+                    int statusCode = (int)errorResponse.StatusCode;
+                    string statusDescription = errorResponse.StatusDescription;
+                    errorResponse.Close();
+                    System.Diagnostics.Debug.WriteLine($"[ERROR API HTTP {statusCode} {statusDescription}]");
+                    throw new ApiHttpException((HttpStatusCode)statusCode, statusDescription, ex);
+                }
+
+                throw;
             }
         }
 
@@ -435,7 +459,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ex.Response is HttpWebResponse err && err.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     System.Diagnostics.Debug.WriteLine("[LOG SYNC] Token expirado (401), reintentando SincronizarSucursal()...");
                     return SincronizarSucursal();
@@ -594,6 +618,27 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             // Remueve caracteres nulos (\0), de control, espacios y normaliza a mayúsculas
             return new string(serial.Where(c => !char.IsControl(c) && c != '\0' && !char.IsWhiteSpace(c)).ToArray()).ToUpper();
+        }
+
+        private static HttpStatusCode? ObtenerCodigoEstado(WebException exception)
+        {
+            if (exception is ApiHttpException apiException)
+            {
+                return apiException.StatusCode;
+            }
+
+            return (exception.Response as HttpWebResponse)?.StatusCode;
+        }
+
+        private sealed class ApiHttpException : WebException
+        {
+            public HttpStatusCode StatusCode { get; }
+
+            public ApiHttpException(HttpStatusCode statusCode, string description, WebException innerException)
+                : base($"HTTP {(int)statusCode}: {description}", innerException, WebExceptionStatus.ProtocolError, null)
+            {
+                StatusCode = statusCode;
+            }
         }
     }
 }
