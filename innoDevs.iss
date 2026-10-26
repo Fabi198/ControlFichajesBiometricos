@@ -7,14 +7,14 @@
 
 [Setup]
 AppName=DevsFingerPrint - Control de Accesos
-AppVersion=1.0.1
+AppVersion=1.0.2
 DefaultDirName={autopf}\DevsFingerPrint\Control de Accesos
 DefaultGroupName=DevsFingerPrint
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 OutputDir={#DesktopDir}\DevsFingerPrint_Instalador
-OutputBaseFilename=DevsFingerPrint_Control_de_Accesos_Setup_v1.0.1
+OutputBaseFilename=DevsFingerPrint_Control_de_Accesos_Setup_v1.0.2
 LicenseFile="{#UareUPackageDir}\Docs\EULA SDK.rtf"
 Compression=lzma
 SolidCompression=yes

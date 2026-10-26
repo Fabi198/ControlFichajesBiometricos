@@ -172,6 +172,7 @@ namespace DevsFingerPrint.Presentation
                 return;
             }
 
+            AgentLog.Info("Inicio de sincronizacion.");
             System.Diagnostics.Debug.WriteLine($"\n[LOG Sync] --- Inicio de ciclo de sincronización ({DateTime.Now:HH:mm:ss}) ---");
 
             try
@@ -215,9 +216,12 @@ namespace DevsFingerPrint.Presentation
                         fichadaRepository.LimpiarFichadasSincronizadas();
                     }
                 }
+
+                AgentLog.Info("Sincronizacion finalizada.");
             }
             catch (Exception ex)
             {
+                AgentLog.Error("Sincronizacion con error: " + ex.GetType().Name + ".");
                 System.Diagnostics.Debug.WriteLine($"[LOG Sync ERROR] Excepción durante la sincronización: {ex.Message}");
             }
             finally

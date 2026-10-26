@@ -1,15 +1,16 @@
-﻿using DevsFingerPrint.Infrastructure.Services;
+using DevsFingerPrint.Infrastructure.Services;
 using DevsFingerPrint.Presentation;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows.Forms;
 using System.Configuration;
+using System.Reflection;
+using System.Windows.Forms;
 
 namespace DevsFingerPrint
 {
     internal static class Program
     {
+        private const string ApiProduccion = "https://controldeaccesos.online";
+
         /// <summary>
         /// Punto de entrada principal para la aplicación.
         /// </summary>
@@ -18,32 +19,98 @@ namespace DevsFingerPrint
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-
-            string apiUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:5052";
-
-            ApiClient apiClient = new ApiClient(apiUrl);
-            bool logueado = false;
-            string clientId, clientSecret;
-
-            // 2. Intentar cargar credenciales de agente guardadas localmente (Paso 2)
-            if (CredentialStorage.CargarCredenciales(out clientId, out clientSecret))
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (sender, args) => MostrarFalloInesperado(args.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
             {
-                // 3. Intentar loguear automáticamente en la API (Paso 3)
-                logueado = apiClient.IniciarSesionAgente(clientId, clientSecret);
-            }
+                Exception ex = args.ExceptionObject as Exception;
+                AgentLog.Error(ex == null
+                    ? "Excepcion no controlada."
+                    : "Excepcion no controlada: " + ex.GetType().Name + ": " + ex.Message);
+            };
 
-            // 4. Si no hay credenciales válidas, mostrar el formulario de alta/instalación
-            if (!logueado)
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            AgentLog.Info("Inicio de la aplicacion. Version " + version);
+
+            string apiUrl = ResolverApiBaseUrl();
+            AgentLog.Info("API " + AgentLog.DescribirApi(apiUrl) + ".");
+
+            try
             {
-                FormLogin formInstalacion = new FormLogin(apiClient);
-                if (formInstalacion.ShowDialog() != DialogResult.OK)
+                ApiClient apiClient = new ApiClient(apiUrl);
+                bool logueado = false;
+                string clientId;
+                string clientSecret;
+
+                if (CredentialStorage.CargarCredenciales(out clientId, out clientSecret))
                 {
-                    return; // Si el usuario cancela, se cierra la app
+                    logueado = apiClient.IniciarSesionAgente(clientId, clientSecret);
+                }
+                else
+                {
+                    AgentLog.Info("No hay credenciales locales. Se abre el formulario de acceso.");
+                }
+
+                if (!logueado)
+                {
+                    FormLogin formInstalacion = new FormLogin(apiClient);
+                    if (formInstalacion.ShowDialog() != DialogResult.OK)
+                    {
+                        AgentLog.Info("Inicio cancelado antes de autenticar.");
+                        return;
+                    }
+                }
+
+                try
+                {
+                    Application.Run(new MainTrayContext(apiClient));
+                }
+                catch (Exception ex)
+                {
+                    AgentLog.Error("Fallo al iniciar la bandeja, la base local o una dependencia nativa: " + ex.GetType().Name + ": " + ex.Message);
+                    MessageBox.Show(
+                        "No se pudo iniciar el agente. El detalle quedó en " + AgentLog.RutaArchivoHoy() + ".",
+                        "Control de Accesos",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
                 }
             }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Fallo de inicio: " + ex.GetType().Name + ": " + ex.Message);
+                MessageBox.Show(
+                    "No se pudo iniciar el agente. El detalle quedó en " + AgentLog.RutaArchivoHoy() + ".",
+                    "Control de Accesos",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
 
-            // 5. Arrancar la aplicación con el contexto del agente activo
-            Application.Run(new MainTrayContext(apiClient));
+        internal static string ResolverApiBaseUrl()
+        {
+            string configurada = ConfigurationManager.AppSettings["ApiBaseUrl"];
+            if (string.IsNullOrWhiteSpace(configurada))
+            {
+                configurada = ApiProduccion;
+            }
+
+            return configurada.Trim().TrimEnd('/');
+        }
+
+        private static void MostrarFalloInesperado(Exception ex)
+        {
+            AgentLog.Error("Excepcion no controlada: " + ex.GetType().Name + ": " + ex.Message);
+            try
+            {
+                MessageBox.Show(
+                    "Ocurrió un error inesperado. El detalle quedó en " + AgentLog.RutaArchivoHoy() + ".",
+                    "Control de Accesos",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch
+            {
+            }
         }
     }
 }

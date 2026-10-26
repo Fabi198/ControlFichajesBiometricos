@@ -136,6 +136,7 @@
     </Compile>
     <Compile Include="Infrastructure\Data\LocalDatabase.cs" />
     <Compile Include="Infrastructure\Repositories\FichadaRepository.cs" />
+    <Compile Include="Infrastructure\Services\AgentLog.cs" />
     <Compile Include="Infrastructure\Services\ApiClient.cs" />
     <Compile Include="Infrastructure\Services\BiometricService.cs" Condition=" '$(Configuration)' == 'Debug' " />
     <Compile Include="Infrastructure\Services\ConfigLocal.cs" />

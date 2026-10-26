@@ -201,7 +201,10 @@ namespace DevsFingerPrint.Presentation
             }
             else
             {
-                MessageBox.Show("Credenciales inválidas o servidor no disponible.", "Error de Autenticación", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                string mensaje = string.IsNullOrWhiteSpace(_apiClient.MensajeErrorAutenticacion)
+                    ? "El servidor respondió con un formato no compatible."
+                    : _apiClient.MensajeErrorAutenticacion;
+                MessageBox.Show(mensaje, "Error de Autenticación", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnIngresar.Enabled = true;
             }
         }

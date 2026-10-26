@@ -13,9 +13,12 @@ namespace DevsFingerPrint.Infrastructure.Services
 {
     public class ApiClient
     {
+        private const int TiempoLimiteMs = 15000;
         private readonly string _baseUrl;
         private string _authToken;
         private readonly Func<bool> _renovarSesion;
+
+        public string MensajeErrorAutenticacion { get; private set; }
 
         public ApiClient(string baseUrl)
             : this(baseUrl, null)
@@ -24,38 +27,76 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public ApiClient(string baseUrl, Func<bool> renovarSesion)
         {
-            _baseUrl = baseUrl.TrimEnd('/');
+            string normalizada = string.IsNullOrWhiteSpace(baseUrl)
+                ? "https://controldeaccesos.online"
+                : baseUrl.Trim().TrimEnd('/');
+            _baseUrl = normalizada;
             _renovarSesion = renovarSesion;
-            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
         }
 
         public bool IniciarSesionAgente(string clientId, string clientSecret)
         {
+            MensajeErrorAutenticacion = null;
+            AgentLog.Info("Comienzo de login.");
             try
             {
-                string url = $"{_baseUrl}/api/auth/agente";
+                string url = _baseUrl + "/api/auth/agente";
                 string jsonBody = JsonConvert.SerializeObject(new { clientId, clientSecret });
                 string responseString = RealizarPeticionSinAuth("POST", url, jsonBody);
 
-                if (!string.IsNullOrEmpty(responseString))
+                if (string.IsNullOrWhiteSpace(responseString))
                 {
-                    _authToken = ExtraerTokenDeJson(responseString);
-                    return !string.IsNullOrEmpty(_authToken);
+                    MensajeErrorAutenticacion = "El servidor respondió con un formato no compatible.";
+                    AgentLog.Info("Login rechazado: respuesta vacia.");
+                    return false;
                 }
+
+                _authToken = ExtraerTokenDeJson(responseString);
+                if (string.IsNullOrEmpty(_authToken))
+                {
+                    MensajeErrorAutenticacion = "El servidor respondió con un formato no compatible.";
+                    AgentLog.Info("Login rechazado: respuesta sin token.");
+                    return false;
+                }
+
+                AgentLog.Info("Login aceptado.");
+                return true;
+            }
+            catch (ApiHttpException ex)
+            {
+                MensajeErrorAutenticacion = MensajePorEstado(ex.StatusCode);
+                AgentLog.Info("Login rechazado. HTTP " + (int)ex.StatusCode + ".");
+                return false;
+            }
+            catch (WebException ex)
+            {
+                MensajeErrorAutenticacion = MensajePorRed(ex);
+                AgentLog.Info("Login rechazado. " + ex.Status + ".");
+                return false;
+            }
+            catch (JsonException)
+            {
+                MensajeErrorAutenticacion = "El servidor respondió con un formato no compatible.";
+                AgentLog.Info("Login rechazado: JSON incompatible.");
+                return false;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("Error en login de agente: " + ex.Message);
+                MensajeErrorAutenticacion = "No se pudo conectar con el servidor. Verificá la conexión a Internet.";
+                AgentLog.Error("Login con error de conexion: " + ex.GetType().Name + ".");
+                return false;
             }
-            return false;
         }
 
         public bool EnviarHeartbeat()
         {
+            AgentLog.Info("Inicio de heartbeat.");
             System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Iniciando proceso de envío de heartbeat...");
 
             if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
             {
+                AgentLog.Info("Heartbeat no enviado: sesion no disponible.");
                 System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] FALLO: No hay _authToken activo y la renovación de sesión falló.");
                 return false;
             }
@@ -79,10 +120,12 @@ namespace DevsFingerPrint.Infrastructure.Services
                 bool exito = !string.IsNullOrEmpty(response);
                 if (exito)
                 {
+                    AgentLog.Info("Heartbeat aceptado.");
                     System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ÉXITO: Latido enviado y confirmado por el servidor.");
                 }
                 else
                 {
+                    AgentLog.Info("Heartbeat sin confirmacion.");
                     System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ADVERTENCIA: El servidor respondió con contenido vacío.");
                 }
 
@@ -93,6 +136,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 HttpStatusCode? statusCode = ObtenerCodigoEstado(ex);
                 if (statusCode.HasValue)
                 {
+                    AgentLog.Info("Heartbeat rechazado. HTTP " + (int)statusCode.Value + ".");
                     System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)statusCode.Value}");
 
                     if (statusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
@@ -100,9 +144,18 @@ namespace DevsFingerPrint.Infrastructure.Services
                         return EnviarHeartbeat();
                     }
                 }
+                else if (ex.Status == WebExceptionStatus.Timeout || ex.Status == WebExceptionStatus.RequestCanceled)
+                {
+                    AgentLog.Info("Heartbeat rechazado por timeout.");
+                }
+                else
+                {
+                    AgentLog.Info("Heartbeat sin conexion.");
+                }
             }
             catch (Exception ex)
             {
+                AgentLog.Info("Heartbeat rechazado. " + ex.GetType().Name + ".");
                 System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Error general al enviar heartbeat: {ex.Message}");
             }
 
@@ -184,8 +237,6 @@ namespace DevsFingerPrint.Infrastructure.Services
 
                     byte[] data = Convert.FromBase64String(base64);
                     string payloadJson = Encoding.UTF8.GetString(data);
-                    System.Diagnostics.Debug.WriteLine($"[LOG JWT AGENTE Payload]: {payloadJson}");
-
                     JObject payload = JObject.Parse(payloadJson);
 
                     JToken tokenAgente = payload["agente_id"] ?? payload["AgenteId"] ?? payload["agenteId"];
@@ -331,6 +382,7 @@ namespace DevsFingerPrint.Infrastructure.Services
         private string RealizarPeticion(string metodo, string url, string jsonBody = null, string token = null)
         {
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            ConfigurarSolicitud(request);
             request.Method = metodo;
             request.ContentType = "application/json";
 
@@ -340,16 +392,43 @@ namespace DevsFingerPrint.Infrastructure.Services
                 request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
             }
 
-            if (!string.IsNullOrEmpty(jsonBody) && (metodo == "POST" || metodo == "PUT"))
+            EscribirCuerpo(request, metodo, jsonBody);
+            return LeerRespuesta(request);
+        }
+
+        private string RealizarPeticionSinAuth(string metodo, string url, string jsonBody)
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            ConfigurarSolicitud(request);
+            request.Method = metodo;
+            request.ContentType = "application/json";
+            EscribirCuerpo(request, metodo, jsonBody);
+            return LeerRespuesta(request);
+        }
+
+        private static void ConfigurarSolicitud(HttpWebRequest request)
+        {
+            request.Timeout = TiempoLimiteMs;
+            request.ReadWriteTimeout = TiempoLimiteMs;
+        }
+
+        private static void EscribirCuerpo(HttpWebRequest request, string metodo, string jsonBody)
+        {
+            if (string.IsNullOrEmpty(jsonBody) || (metodo != "POST" && metodo != "PUT"))
             {
-                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
-                request.ContentLength = data.Length;
-                using (Stream stream = request.GetRequestStream())
-                {
-                    stream.Write(data, 0, data.Length);
-                }
+                return;
             }
 
+            byte[] data = Encoding.UTF8.GetBytes(jsonBody);
+            request.ContentLength = data.Length;
+            using (Stream stream = request.GetRequestStream())
+            {
+                stream.Write(data, 0, data.Length);
+            }
+        }
+
+        private static string LeerRespuesta(HttpWebRequest request)
+        {
             try
             {
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
@@ -360,6 +439,11 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
+                if (ex.Status == WebExceptionStatus.Timeout || ex.Status == WebExceptionStatus.RequestCanceled)
+                {
+                    request.Abort();
+                }
+
                 if (ex.Response is HttpWebResponse errorResponse)
                 {
                     int statusCode = (int)errorResponse.StatusCode;
@@ -369,31 +453,45 @@ namespace DevsFingerPrint.Infrastructure.Services
                     throw new ApiHttpException((HttpStatusCode)statusCode, statusDescription, ex);
                 }
 
+                request.Abort();
                 throw;
             }
         }
 
-        private string RealizarPeticionSinAuth(string metodo, string url, string jsonBody)
+        private static string MensajePorEstado(HttpStatusCode statusCode)
         {
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = metodo;
-            request.ContentType = "application/json";
-
-            if (!string.IsNullOrEmpty(jsonBody))
+            int code = (int)statusCode;
+            if (code == 400 || code == 401)
             {
-                byte[] data = Encoding.UTF8.GetBytes(jsonBody);
-                request.ContentLength = data.Length;
-                using (Stream stream = request.GetRequestStream())
-                {
-                    stream.Write(data, 0, data.Length);
-                }
+                return "Las credenciales del agente no son válidas.";
             }
 
-            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-            using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+            if (code == 403)
             {
-                return reader.ReadToEnd();
+                return "El agente no tiene autorización para conectarse.";
             }
+
+            if (code >= 500 && code <= 599)
+            {
+                return "El servidor no está disponible temporalmente.";
+            }
+
+            return "El servidor respondió con un formato no compatible.";
+        }
+
+        private static string MensajePorRed(WebException exception)
+        {
+            if (exception.Status == WebExceptionStatus.Timeout || exception.Status == WebExceptionStatus.RequestCanceled)
+            {
+                return "El servidor tardó demasiado en responder. Intentá nuevamente.";
+            }
+
+            if (exception.Response is HttpWebResponse response)
+            {
+                return MensajePorEstado(response.StatusCode);
+            }
+
+            return "No se pudo conectar con el servidor. Verificá la conexión a Internet.";
         }
 
         private string ExtraerTokenDeJson(string json)
@@ -409,6 +507,7 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool SincronizarSucursal()
         {
+            AgentLog.Info("Inicio de sincronizacion de sucursal.");
             System.Diagnostics.Debug.WriteLine("[LOG SYNC] Iniciando SincronizarSucursal() para Agente...");
 
             if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
@@ -432,7 +531,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Realizando petición GET a: {url}");
 
                 string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
-                System.Diagnostics.Debug.WriteLine($"[LOG SYNC] Respuesta recibida de la API: {(string.IsNullOrEmpty(jsonResponse) ? "VACÍA/NULL" : jsonResponse)}");
+                System.Diagnostics.Debug.WriteLine("[LOG SYNC] Respuesta de sucursal recibida.");
 
                 if (!string.IsNullOrEmpty(jsonResponse))
                 {
@@ -448,7 +547,8 @@ namespace DevsFingerPrint.Infrastructure.Services
                             sucursal.SerialLector
                         );
 
-                        System.Diagnostics.Debug.WriteLine($"[LOG API] Sucursal '{sucursal.Nombre}' sincronizada y guardada localmente mediante Agente.");
+                        AgentLog.Info("Sincronizacion de sucursal completada.");
+                        System.Diagnostics.Debug.WriteLine("[LOG API] Sucursal sincronizada y guardada localmente mediante Agente.");
                         return true;
                     }
                     else
@@ -489,8 +589,6 @@ namespace DevsFingerPrint.Infrastructure.Services
 
                     byte[] data = Convert.FromBase64String(base64);
                     string payloadJson = Encoding.UTF8.GetString(data);
-                    System.Diagnostics.Debug.WriteLine($"[LOG JWT Payload]: {payloadJson}");
-
                     JObject payload = JObject.Parse(payloadJson);
 
                     JToken tokenSucursal = payload["sucursal_id"] ?? payload["SucursalId"] ?? payload["sucursalId"];
