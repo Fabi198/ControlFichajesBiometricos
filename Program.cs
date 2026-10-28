@@ -2,6 +2,7 @@ using DevsFingerPrint.Infrastructure.Services;
 using DevsFingerPrint.Presentation;
 using System;
 using System.Configuration;
+using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
 
@@ -17,6 +18,19 @@ namespace DevsFingerPrint
         [STAThread]
         static void Main()
         {
+            InstanciaUnicaAgente instancia = InstanciaUnicaAgente.Adquirir();
+            if (!InstanciaUnicaAgente.ResolverArranque(instancia.EsPropietaria, instancia.Senalar))
+            {
+                instancia.Dispose();
+                return;
+            }
+
+            int pid = Process.GetCurrentProcess().Id;
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            AgentLog.Info(RegistroOperativo.Inicio(pid, version, OrigenInicio.Resolver(Environment.GetCommandLineArgs())));
+            AgentLog.Info(RegistroOperativo.MutexAdquirido(pid));
+            instancia.IniciarEscucha();
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -28,9 +42,6 @@ namespace DevsFingerPrint
                     ? CicloVidaAgente.TextoCierre(MotivoCierre.ExcepcionNoControlada)
                     : CicloVidaAgente.TextoCierre(MotivoCierre.ExcepcionNoControlada) + " " + ex.GetType().Name + ".");
             };
-
-            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            AgentLog.Info("Inicio de la aplicacion. Version " + version);
 
             string apiUrl = ResolverApiBaseUrl();
             AgentLog.Info("API " + AgentLog.DescribirApi(apiUrl) + ".");
@@ -71,7 +82,7 @@ namespace DevsFingerPrint
 
                 try
                 {
-                    Application.Run(new MainTrayContext(apiClient));
+                    Application.Run(new MainTrayContext(apiClient, instancia));
                 }
                 catch (Exception ex)
                 {
@@ -91,6 +102,11 @@ namespace DevsFingerPrint
                     "Control de Accesos",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
+            }
+            finally
+            {
+                AgentLog.Info(RegistroOperativo.Fin(pid));
+                instancia.Dispose();
             }
         }
 

@@ -155,6 +155,192 @@ namespace DevsFingerPrint.Infrastructure.Services
             ocultar();
             mostrar();
         }
+
+        public static string TextoUltimaSincronizacion(DateTime? ultima)
+        {
+            if (ultima == null)
+            {
+                return "Sin sincronizaciones";
+            }
+
+            return "Última sincronización: " + ultima.Value.ToString("dd'/'MM'/'yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        public static string TextoVersion(Version version)
+        {
+            if (version == null)
+            {
+                return "Versión";
+            }
+
+            return "Versión " + version.ToString(3);
+        }
+    }
+
+    public static class OrigenInicio
+    {
+        public const string Manual = "manual";
+        public const string Tarea = "tarea";
+        public const string Instalador = "instalador";
+
+        public static string Resolver(string[] argumentos)
+        {
+            if (argumentos == null)
+            {
+                return Manual;
+            }
+
+            foreach (string argumento in argumentos)
+            {
+                if (string.Equals(argumento, "--origen=tarea", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Tarea;
+                }
+
+                if (string.Equals(argumento, "--origen=instalador", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Instalador;
+                }
+            }
+
+            return Manual;
+        }
+    }
+
+    public static class RegistroOperativo
+    {
+        public static string Inicio(int pid, string version, string origen)
+        {
+            return "Inicio de la aplicacion. PID " + pid + ". Version " + version + ". Origen " + origen + ".";
+        }
+
+        public static string MutexAdquirido(int pid)
+        {
+            return "Mutex adquirido. PID " + pid + ".";
+        }
+
+        public static string InstanciaExistente(int pid)
+        {
+            return "Se detectó una instancia existente. PID " + pid + ".";
+        }
+
+        public static string Senal(int pid)
+        {
+            return "Senal recibida desde otra ejecucion. PID " + pid + ".";
+        }
+
+        public static string TaskbarCreada()
+        {
+            return "TaskbarCreated.";
+        }
+
+        public static string IconoRepublicado()
+        {
+            return "Icono republicado.";
+        }
+
+        public static string Fin(int pid)
+        {
+            return "Finalizacion del proceso. PID " + pid + ".";
+        }
+    }
+
+    public sealed class GestorIconoBandeja
+    {
+        public int IconosCreados { get; private set; }
+        public int Timers { get; private set; }
+        public int Suscripciones { get; private set; }
+        public int Republicaciones { get; private set; }
+        public int Disposes { get; private set; }
+        public bool Visible { get; private set; }
+
+        public bool CrearIcono()
+        {
+            if (IconosCreados != 0 || Disposes != 0)
+            {
+                return false;
+            }
+
+            IconosCreados = 1;
+            Visible = true;
+            return true;
+        }
+
+        public void RegistrarTimer()
+        {
+            Timers++;
+        }
+
+        public bool SuscribirBarra()
+        {
+            if (Suscripciones != 0 || Disposes != 0)
+            {
+                return false;
+            }
+
+            Suscripciones = 1;
+            return true;
+        }
+
+        public void Republicar()
+        {
+            if (IconosCreados != 1 || Disposes != 0)
+            {
+                return;
+            }
+
+            Visible = false;
+            Visible = true;
+            Republicaciones++;
+        }
+
+        public void Cerrar()
+        {
+            if (Disposes != 0)
+            {
+                return;
+            }
+
+            Visible = false;
+            Disposes = 1;
+        }
+    }
+
+    public sealed class ReintentoManual
+    {
+        private readonly OperacionExclusiva puerta = new OperacionExclusiva();
+
+        public bool Iniciar(Action trabajo)
+        {
+            if (trabajo == null || !puerta.TryEnter())
+            {
+                return false;
+            }
+
+            try
+            {
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try
+                    {
+                        trabajo();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    finally
+                    {
+                        puerta.Salir();
+                    }
+                });
+                return true;
+            }
+            catch (Exception)
+            {
+                puerta.Salir();
+                return false;
+            }
+        }
     }
 
     public sealed class ReintentoConexion

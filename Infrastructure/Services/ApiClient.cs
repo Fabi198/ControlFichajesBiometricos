@@ -24,6 +24,7 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public string MensajeErrorAutenticacion { get; private set; }
         public bool CredencialesRechazadas { get { return _credencialesRechazadas; } }
+        public bool TieneSesion { get { return HaySesion(); } }
 
         public ApiClient(string baseUrl)
             : this(baseUrl, null)

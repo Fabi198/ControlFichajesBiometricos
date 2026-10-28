@@ -333,6 +333,49 @@ begin
   end;
 end;
 
+function AsegurarIgnoreNew(const Ruta: String; var Texto: AnsiString): Boolean;
+var
+  Cuerpo: String;
+  Codigo: Integer;
+begin
+  Result := False;
+  Cuerpo := Texto;
+  if Pos('<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>', Cuerpo) > 0 then
+  begin
+    Log('La tarea usa IgnoreNew.');
+    Result := True;
+    Exit;
+  end;
+  if Pos('<MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>', Cuerpo) > 0 then
+    StringChangeEx(Cuerpo, '<MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>', '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>', True)
+  else if Pos('<MultipleInstancesPolicy>Queue</MultipleInstancesPolicy>', Cuerpo) > 0 then
+    StringChangeEx(Cuerpo, '<MultipleInstancesPolicy>Queue</MultipleInstancesPolicy>', '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>', True)
+  else if Pos('<MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy>', Cuerpo) > 0 then
+    StringChangeEx(Cuerpo, '<MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy>', '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>', True)
+  else
+  begin
+    Log('La tarea no declara MultipleInstancesPolicy.');
+    Exit;
+  end;
+  Texto := Cuerpo;
+  if not SaveStringToFile(Ruta, Texto, False) then
+  begin
+    Log('No se pudo guardar la tarea con IgnoreNew.');
+    Exit;
+  end;
+  if (not EjecutarCodigo(
+    ExpandConstant('{sys}\schtasks.exe'),
+    '/Create /F /TN "DevsFingerPrintControldeAccesos" /XML "' + Ruta + '"',
+    'schtasks /Create /XML',
+    Codigo)) or (Codigo <> 0) then
+  begin
+    Log('No se pudo reimportar la tarea con IgnoreNew.');
+    Exit;
+  end;
+  Log('La tarea quedo con IgnoreNew.');
+  Result := True;
+end;
+
 function CrearTareaActual: Boolean;
 var
   Codigo: Integer;
@@ -342,7 +385,7 @@ begin
   Result := False;
   if not EjecutarCodigo(
     ExpandConstant('{sys}\schtasks.exe'),
-    ExpandConstant('/Create /F /TN "DevsFingerPrintControldeAccesos" /TR "''{app}\DevsFingerPrint.exe''" /SC ONLOGON /RL HIGHEST'),
+    ExpandConstant('/Create /F /TN "DevsFingerPrintControldeAccesos" /TR "''{app}\DevsFingerPrint.exe'' --origen=tarea" /SC ONLOGON /RL HIGHEST'),
     'schtasks /Create',
     Codigo) then
     Exit;
@@ -356,6 +399,11 @@ begin
     Codigo) then
     Exit;
   if not LoadStringFromFile(Ruta, Texto) then
+  begin
+    DeleteFile(Ruta);
+    Exit;
+  end;
+  if not AsegurarIgnoreNew(Ruta, Texto) then
   begin
     DeleteFile(Ruta);
     Exit;
@@ -415,7 +463,8 @@ begin
     Log('No se inicia el agente porque el ejecutable no existe.');
     Exit;
   end;
-  if Exec(Exe, '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, Codigo) then
+  Log('Inicio unico por el ejecutable. La tarea queda para el proximo inicio de sesion y no se dispara ahora.');
+  if Exec(Exe, '--origen=instalador', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, Codigo) then
   begin
     AgenteIniciado := True;
     Log('Se inicio una unica instancia del agente.');

@@ -15,9 +15,14 @@ namespace DevsFingerPrint.Infrastructure.Services
             Write("ERROR", message);
         }
 
+        public static string CarpetaLogs()
+        {
+            return Directorio();
+        }
+
         public static string RutaArchivoHoy()
         {
-            return Path.Combine(Directorio(), "agente-" + DateTime.Now.ToString("yyyy-MM-dd") + ".log");
+            return Path.Combine(CarpetaLogs(), "agente-" + DateTime.Now.ToString("yyyy-MM-dd") + ".log");
         }
 
         public static string DescribirApi(string baseUrl)

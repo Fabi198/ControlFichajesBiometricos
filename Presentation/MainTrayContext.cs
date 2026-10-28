@@ -8,7 +8,10 @@ using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
+using System.Diagnostics;
 using System.Drawing;
+using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -17,6 +20,8 @@ namespace DevsFingerPrint.Presentation
     public class MainTrayContext : ApplicationContext
     {
         private readonly NotifyIcon notifyIcon;
+        private readonly GestorIconoBandeja gestorIcono = new GestorIconoBandeja();
+        private readonly ReintentoManual reintentoManual = new ReintentoManual();
         private readonly IBiometricService biometricService;
         private readonly IFichadaRepository fichadaRepository;
         private List<HuellaEnMemoria> huellasCargadas;
@@ -38,11 +43,13 @@ namespace DevsFingerPrint.Presentation
         private MotivoCierre? motivoCierre;
 
         private ContextMenuStrip contextMenu;
+        private readonly ToolStripMenuItem menuEstado;
+        private readonly ToolStripMenuItem menuSincronizacion;
 #if DEBUG
         private ToolStripMenuItem menuSimularFichada;
 #endif
 
-        public MainTrayContext(ApiClient apiClient)
+        public MainTrayContext(ApiClient apiClient, InstanciaUnicaAgente instancia)
         {
             System.Diagnostics.Debug.WriteLine("[LOG MainTray] Inicializando MainTrayContext...");
             LocalDatabase.Inicializar();
@@ -60,6 +67,20 @@ namespace DevsFingerPrint.Presentation
             huellasCargadas = new List<HuellaEnMemoria>();
 
             contextMenu = new ContextMenuStrip();
+            menuEstado = new ToolStripMenuItem(CicloVidaAgente.TextoEstado(EstadoOperativo.SinConexion));
+            menuEstado.Enabled = false;
+            menuSincronizacion = new ToolStripMenuItem(CicloVidaAgente.TextoUltimaSincronizacion(null));
+            menuSincronizacion.Enabled = false;
+            ToolStripMenuItem menuVersion = new ToolStripMenuItem(
+                CicloVidaAgente.TextoVersion(Assembly.GetExecutingAssembly().GetName().Version));
+            menuVersion.Enabled = false;
+            contextMenu.Items.Add(menuEstado);
+            contextMenu.Items.Add(menuSincronizacion);
+            contextMenu.Items.Add("Reintentar conexión", null, ReintentarConexion);
+            contextMenu.Items.Add("Vincular o cambiar credenciales", null, VincularCredenciales);
+            contextMenu.Items.Add("Abrir carpeta de logs", null, AbrirCarpetaLogs);
+            contextMenu.Items.Add(menuVersion);
+            contextMenu.Items.Add("-");
 
             contextMenu.Items.Add(
 #if DEBUG
@@ -83,9 +104,9 @@ namespace DevsFingerPrint.Presentation
             contextMenu.Items.Add("Estado del lector biométrico", null, MostrarEstadoLector);
 #endif
             contextMenu.Items.Add("-");
-            contextMenu.Items.Add("Vincular o cambiar credenciales", null, VincularCredenciales);
             contextMenu.Items.Add("Salir", null, SalirAplicacion);
 
+            gestorIcono.CrearIcono();
             notifyIcon = new NotifyIcon
             {
                 Icon = Properties.Resources.circularColor,
@@ -99,10 +120,14 @@ namespace DevsFingerPrint.Presentation
             biometricService.OnEmpleadoIdentificado += OnEmpleadoIdentificado;
             biometricService.OnHuellaNoReconocida += OnHuellaNoReconocida;
             biometricService.OnEstadoCambiado += OnEstadoCambiado;
-            lectorFormularioOculto.BarraTareasCreada += (s, e) => RepublicarIcono();
+            if (gestorIcono.SuscribirBarra())
+            {
+                lectorFormularioOculto.BarraTareasCreada += OnBarraTareasCreada;
+            }
             SystemEvents.SessionEnding += OnSessionEnding;
 
             // Temporizador de sincronización periódica
+            gestorIcono.RegistrarTimer();
             syncTimer = new System.Windows.Forms.Timer();
             syncTimer.Interval = 60000 * 20;
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
@@ -114,6 +139,7 @@ namespace DevsFingerPrint.Presentation
             ConstruirMenuEmpleadosSimulacion();
 #endif
 
+            gestorIcono.RegistrarTimer();
             arranqueLectorTimer = new System.Windows.Forms.Timer();
             arranqueLectorTimer.Interval = 200;
             arranqueLectorTimer.Tick += (s, e) =>
@@ -137,6 +163,10 @@ namespace DevsFingerPrint.Presentation
             SincronizarConServidorAsync();
             syncTimer.Start();
             InicializarHeartbeat();
+            if (instancia != null)
+            {
+                instancia.Escuchar(MostrarSenalDeOtraInstancia);
+            }
         }
 
 #if DEBUG
@@ -563,12 +593,19 @@ namespace DevsFingerPrint.Presentation
                 return;
             }
 
+            gestorIcono.Cerrar();
+
             try
             {
                 SystemEvents.SessionEnding -= OnSessionEnding;
             }
             catch (Exception)
             {
+            }
+
+            if (lectorFormularioOculto != null)
+            {
+                lectorFormularioOculto.BarraTareasCreada -= OnBarraTareasCreada;
             }
 
             if (syncTimer != null)
@@ -615,6 +652,7 @@ namespace DevsFingerPrint.Presentation
 
         private void InicializarHeartbeat()
         {
+            gestorIcono.RegistrarTimer();
             heartbeatTimer = new System.Windows.Forms.Timer();
             heartbeatTimer.Interval = reintento.IntervaloHeartbeatMs;
             heartbeatTimer.Tick += (sender, e) => EjecutarHeartbeatPeriodico();
@@ -685,6 +723,117 @@ namespace DevsFingerPrint.Presentation
             }
         }
 
+        private void OnBarraTareasCreada(object sender, EventArgs e)
+        {
+            if (Volatile.Read(ref recursosLiberados) != 0)
+            {
+                return;
+            }
+
+            int timers = gestorIcono.Timers;
+            int iconos = gestorIcono.IconosCreados;
+            AgentLog.Info(RegistroOperativo.TaskbarCreada());
+            gestorIcono.Republicar();
+            if (gestorIcono.Timers != timers || gestorIcono.IconosCreados != iconos)
+            {
+                return;
+            }
+
+            RepublicarIcono();
+            AgentLog.Info(RegistroOperativo.IconoRepublicado());
+        }
+
+        private void MostrarSenalDeOtraInstancia()
+        {
+            Action avisar = () =>
+            {
+                if (Volatile.Read(ref recursosLiberados) != 0 || notifyIcon == null)
+                {
+                    return;
+                }
+
+                MostrarNotificacion("Control de Accesos", "El agente ya está en ejecución.", ToolTipIcon.Info);
+            };
+
+            if (lectorFormularioOculto != null && lectorFormularioOculto.IsHandleCreated && lectorFormularioOculto.InvokeRequired)
+            {
+                lectorFormularioOculto.BeginInvoke(avisar);
+            }
+            else
+            {
+                avisar();
+            }
+        }
+
+        private void ReintentarConexion(object sender, EventArgs e)
+        {
+            if (!reintentoManual.Iniciar(EjecutarReintentoConexion))
+            {
+                AgentLog.Info("Reintento de conexion omitido: ya hay uno en curso.");
+            }
+        }
+
+        private void EjecutarReintentoConexion()
+        {
+            try
+            {
+                AgentLog.Info("Reintento de conexion iniciado.");
+                if (_apiClient != null && !_apiClient.TieneSesion)
+                {
+                    string clientId;
+                    string clientSecret;
+                    if (CredentialStorage.CargarCredenciales(out clientId, out clientSecret))
+                    {
+                        _apiClient.IniciarSesionAgente(clientId, clientSecret);
+                    }
+                }
+
+                bool aceptado = _apiClient != null && _apiClient.EnviarHeartbeat();
+                if (aceptado)
+                {
+                    apiConectada = true;
+                    notificoCredenciales = false;
+                    reintento.RegistrarRecuperacion();
+                }
+                else if (_apiClient != null && _apiClient.CredencialesRechazadas)
+                {
+                    apiConectada = false;
+                    NotificarCredencialesUnaVez();
+                }
+                else
+                {
+                    apiConectada = false;
+                    reintento.RegistrarFalloTemporal();
+                }
+
+                AplicarIntervalosEnUi();
+                PublicarIconoEnUi();
+                AgentLog.Info("Reintento de conexion finalizado.");
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Reintento de conexion con error: " + ex.GetType().Name + ".");
+            }
+        }
+
+        private void AbrirCarpetaLogs(object sender, EventArgs e)
+        {
+            try
+            {
+                string carpeta = AgentLog.CarpetaLogs();
+                Directory.CreateDirectory(carpeta);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = carpeta,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Carpeta de logs no disponible: " + ex.GetType().Name + ".");
+            }
+        }
+
         private void RepublicarIcono()
         {
             if (Volatile.Read(ref recursosLiberados) != 0 || notifyIcon == null)
@@ -731,7 +880,18 @@ namespace DevsFingerPrint.Presentation
                 sincronizando,
                 apiConectada,
                 lectorDisponible);
-            notifyIcon.Text = CicloVidaAgente.TextoEstado(estado);
+            string texto = CicloVidaAgente.TextoEstado(estado);
+            notifyIcon.Text = texto;
+            if (menuEstado != null)
+            {
+                menuEstado.Text = texto;
+            }
+
+            if (menuSincronizacion != null)
+            {
+                menuSincronizacion.Text = CicloVidaAgente.TextoUltimaSincronizacion(
+                    resumenCatalogo == null ? (DateTime?)null : resumenCatalogo.UltimaSincronizacionCorrecta);
+            }
         }
 
         private void AplicarIntervalosEnUi()
