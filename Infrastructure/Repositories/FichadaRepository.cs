@@ -75,6 +75,40 @@ namespace DevsFingerPrint.Infrastructure.Repositories
             return lista;
         }
 
+        public IEnumerable<Empleado> ObtenerEmpleadosLocales()
+        {
+            var lista = new List<Empleado>();
+            using (var conexion = new SQLiteConnection(_connectionString))
+            {
+                conexion.Open();
+                string sql = "SELECT Id, EmpresaId, Legajo, DNI, CUIL, Nombre, Apellido, Departamento, Categoria, Sucursal, Horario, Activo FROM Empleado";
+                using (var cmd = new SQLiteCommand(sql, conexion))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        lista.Add(new Empleado
+                        {
+                            Id = Convert.ToInt32(reader["Id"]),
+                            EmpresaId = Convert.ToInt32(reader["EmpresaId"]),
+                            Legajo = reader["Legajo"] == DBNull.Value ? null : reader["Legajo"].ToString(),
+                            DNI = reader["DNI"].ToString(),
+                            CUIL = reader["CUIL"] == DBNull.Value ? null : reader["CUIL"].ToString(),
+                            Nombre = reader["Nombre"].ToString(),
+                            Apellido = reader["Apellido"].ToString(),
+                            Departamento = reader["Departamento"] == DBNull.Value ? null : reader["Departamento"].ToString(),
+                            Categoria = reader["Categoria"] == DBNull.Value ? null : reader["Categoria"].ToString(),
+                            Sucursal = reader["Sucursal"] == DBNull.Value ? null : reader["Sucursal"].ToString(),
+                            Horario = reader["Horario"] == DBNull.Value ? null : reader["Horario"].ToString(),
+                            Activo = Convert.ToInt32(reader["Activo"]) == 1
+                        });
+                    }
+                }
+            }
+
+            return lista;
+        }
+
         public IEnumerable<Fichada> ObtenerFichadasPendientes()
         {
             var lista = new List<Fichada>();

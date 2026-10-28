@@ -162,28 +162,37 @@ namespace DevsFingerPrint.Infrastructure.Services
             return false;
         }
 
-        public List<Huella> ObtenerHuellas()
+        public ResultadoLista<Huella> ObtenerHuellas()
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return null;
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            {
+                return ResultadoLista<Huella>.Fallo("sin-autorizacion");
+            }
 
             try
             {
-                // Extraemos el empresa_id del token JWT del agente
                 int empresaId = ExtraerEmpresaIdDeToken(_authToken);
-                string url = $"{_baseUrl}/api/huellas/empresa/{empresaId}";
-
+                string url = _baseUrl + "/api/huellas/empresa/" + empresaId;
                 string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
-                return string.IsNullOrEmpty(jsonResponse) ? new List<Huella>() : JsonConvert.DeserializeObject<List<Huella>>(jsonResponse);
+                return InterpretarLista<Huella>(jsonResponse);
             }
-            catch (WebException ex)
+            catch (ApiHttpException ex)
             {
-                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ex.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
                 {
                     return ObtenerHuellas();
                 }
-                System.Diagnostics.Debug.WriteLine($"Error al obtener huellas: {ex.Message}");
+
+                return ResultadoLista<Huella>.Fallo(MotivoHttp(ex.StatusCode));
             }
-            return null;
+            catch (WebException ex)
+            {
+                return ResultadoLista<Huella>.Fallo(MotivoTransporte(ex));
+            }
+            catch (JsonException)
+            {
+                return ResultadoLista<Huella>.Fallo("json");
+            }
         }
 
         private int ExtraerEmpresaIdDeToken(string token)
@@ -263,30 +272,71 @@ namespace DevsFingerPrint.Infrastructure.Services
             return 0;
         }
 
-        public List<Empleado> ObtenerEmpleados()
+        public ResultadoLista<Empleado> ObtenerEmpleados()
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return new List<Empleado>();
+            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            {
+                return ResultadoLista<Empleado>.Fallo("sin-autorizacion");
+            }
+
             try
             {
-                string jsonResponse = RealizarPeticion("GET", $"{_baseUrl}/api/empleados", null, _authToken);
-                return string.IsNullOrEmpty(jsonResponse) ? new List<Empleado>() : JsonConvert.DeserializeObject<List<Empleado>>(jsonResponse);
+                string jsonResponse = RealizarPeticion("GET", _baseUrl + "/api/empleados", null, _authToken);
+                return InterpretarLista<Empleado>(jsonResponse);
+            }
+            catch (ApiHttpException ex)
+            {
+                if (ex.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                {
+                    return ObtenerEmpleados();
+                }
+
+                return ResultadoLista<Empleado>.Fallo(MotivoHttp(ex.StatusCode));
             }
             catch (WebException ex)
             {
-                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
-                {
-                    if (IntentarRenovarSesion())
-                    {
-                        return ObtenerEmpleados();
-                    }
-                }
-                System.Diagnostics.Debug.WriteLine("Error al obtener empleados: " + ex.Message);
+                return ResultadoLista<Empleado>.Fallo(MotivoTransporte(ex));
             }
-            catch (Exception ex)
+            catch (JsonException)
             {
-                System.Diagnostics.Debug.WriteLine("Error general al obtener empleados: " + ex.Message);
+                return ResultadoLista<Empleado>.Fallo("json");
             }
-            return new List<Empleado>();
+        }
+
+        internal static string MotivoTransporte(WebException exception)
+        {
+            if (exception == null)
+            {
+                return "red";
+            }
+
+            if (exception.Status == WebExceptionStatus.Timeout || exception.Status == WebExceptionStatus.RequestCanceled)
+            {
+                return "timeout";
+            }
+
+            return "red";
+        }
+
+        private static string MotivoHttp(HttpStatusCode statusCode)
+        {
+            return "http-" + (int)statusCode;
+        }
+
+        private static ResultadoLista<T> InterpretarLista<T>(string jsonResponse)
+        {
+            if (string.IsNullOrWhiteSpace(jsonResponse))
+            {
+                return ResultadoLista<T>.Fallo("json");
+            }
+
+            List<T> lista = JsonConvert.DeserializeObject<List<T>>(jsonResponse);
+            if (lista == null)
+            {
+                return ResultadoLista<T>.Fallo("json");
+            }
+
+            return ResultadoLista<T>.Ok(lista);
         }
 
         public bool EnviarFichadas(List<Fichada> fichadas)

@@ -17,6 +17,7 @@ namespace DevsFingerPrint.Domain.Interfaces
 
         // Operaciones de cache local
         IEnumerable<Huella> ObtenerHuellasLocales();
+        IEnumerable<Empleado> ObtenerEmpleadosLocales();
         void SincronizarCatalogoEmpresa(IEnumerable<Empleado> empleados, IEnumerable<Huella> huellas);
 
         // Sync remoto con el backend

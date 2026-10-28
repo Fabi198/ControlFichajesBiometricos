@@ -17,7 +17,9 @@ namespace DevsFingerPrint.Presentation
         private readonly NotifyIcon notifyIcon;
         private readonly IBiometricService biometricService;
         private readonly IFichadaRepository fichadaRepository;
-        private List<Huella> huellasCargadas;
+        private List<HuellaEnMemoria> huellasCargadas;
+        private ResumenCatalogoBiometrico resumenCatalogo = new ResumenCatalogoBiometrico();
+        private string estadoApi = "Sin sincronizar";
         private ApiClient _apiClient;
         private readonly LectorListenerForm lectorFormularioOculto;
         private System.Windows.Forms.Timer heartbeatTimer;
@@ -45,7 +47,7 @@ namespace DevsFingerPrint.Presentation
             biometricService = new DigitalPersonaBiometricService();
 #endif
 
-            huellasCargadas = new List<Huella>();
+            huellasCargadas = new List<HuellaEnMemoria>();
 
             contextMenu = new ContextMenuStrip();
 
@@ -132,10 +134,10 @@ namespace DevsFingerPrint.Presentation
             menuSimularFichada.DropDownItems.Clear();
             try
             {
-                List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
-                if (listaEmpleados != null && listaEmpleados.Count > 0)
+                ResultadoLista<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
+                if (listaEmpleados.Exitoso && listaEmpleados.Elementos.Count > 0)
                 {
-                    foreach (var emp in listaEmpleados)
+                    foreach (var emp in listaEmpleados.Elementos)
                     {
                         string textoItem = $"{emp.NombreCompleto} (ID: {emp.Id})";
                         menuSimularFichada.DropDownItems.Add(textoItem, null, (s, e) =>
@@ -177,13 +179,31 @@ namespace DevsFingerPrint.Presentation
 
             try
             {
-                List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
-                List<Huella> listaHuellas = _apiClient.ObtenerHuellas();
+                ResultadoLista<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
+                ResultadoLista<Huella> listaHuellas = _apiClient.ObtenerHuellas();
 
-                if (listaEmpleados != null && listaHuellas != null)
+                List<Empleado> empleadosDestino = null;
+                List<Huella> huellasDestino = null;
+                string motivoContrato = "sin-contrato";
+                bool contratoValido = listaEmpleados.Exitoso
+                    && listaHuellas.Exitoso
+                    && CatalogoBiometrico.PrepararReemplazo(
+                        listaEmpleados.Elementos,
+                        listaHuellas.Elementos,
+                        LocalDatabase.ObtenerSucursalIdLocal(),
+                        out empleadosDestino,
+                        out huellasDestino,
+                        out motivoContrato);
+                if (contratoValido)
                 {
-                    fichadaRepository.SincronizarCatalogoEmpresa(listaEmpleados, listaHuellas);
+                    fichadaRepository.SincronizarCatalogoEmpresa(empleadosDestino, huellasDestino);
+                    resumenCatalogo.UltimaSincronizacionCorrecta = DateTime.Now;
+                    estadoApi = "Conectada";
                     CargarHuellasLocales();
+                    AgentLog.Info("Sincronizacion biometrica correcta. api-empleados=" + listaEmpleados.Elementos.Count
+                        + " api-huellas=" + listaHuellas.Elementos.Count
+                        + " " + resumenCatalogo.TextoLog()
+                        + " ultima=" + resumenCatalogo.UltimaSincronizacionCorrecta.Value.ToString("yyyy-MM-dd HH:mm:ss"));
 
                     // Refresca el menú de simulación solo en compilaciones de depuración.
 #if DEBUG
@@ -196,6 +216,14 @@ namespace DevsFingerPrint.Presentation
                         ConstruirMenuEmpleadosSimulacion();
                     }
 #endif
+                }
+                else
+                {
+                    estadoApi = listaEmpleados.Exitoso && listaHuellas.Exitoso ? "Respuesta rechazada" : "Sin conexión";
+                    string motivo = listaEmpleados.Exitoso && listaHuellas.Exitoso
+                        ? motivoContrato
+                        : "empleados=" + listaEmpleados.Motivo + " huellas=" + listaHuellas.Motivo;
+                    AgentLog.Info("Sincronizacion biometrica conservada. " + motivo);
                 }
 
                 var pendientes = fichadaRepository.ObtenerFichadasPendientes();
@@ -232,13 +260,12 @@ namespace DevsFingerPrint.Presentation
 
         private void CargarHuellasLocales()
         {
-            var locales = fichadaRepository.ObtenerHuellasLocales();
-            huellasCargadas = new List<Huella>(locales);
-#if DEBUG
-            System.Diagnostics.Debug.WriteLine($"\n[LOG Biometric MOCK] Cache local actualizada: {huellasCargadas.Count} huella(s) en memoria.");
-#else
-            System.Diagnostics.Debug.WriteLine($"\n[LOG Biometric] Cache local actualizada: {huellasCargadas.Count} huella(s) en memoria.");
-#endif
+            DateTime? ultima = resumenCatalogo.UltimaSincronizacionCorrecta;
+            resumenCatalogo = CatalogoBiometrico.Construir(
+                fichadaRepository.ObtenerEmpleadosLocales(),
+                fichadaRepository.ObtenerHuellasLocales());
+            resumenCatalogo.UltimaSincronizacionCorrecta = ultima;
+            huellasCargadas = resumenCatalogo.Compatibles;
         }
 
         private void OnHuellaCapturada(Fmd fmdCapturado)
@@ -246,6 +273,12 @@ namespace DevsFingerPrint.Presentation
             System.Diagnostics.Debug.WriteLine("\n[LOG Biometric] Huella capturada.");
             if (huellasCargadas == null || huellasCargadas.Count == 0)
             {
+                if (resumenCatalogo.HuellasRecibidas > 0)
+                {
+                    MostrarNotificacion("Lector", "No hay huellas compatibles disponibles para validar.", ToolTipIcon.Warning);
+                    return;
+                }
+
                 OnHuellaNoReconocida();
                 return;
             }
@@ -331,27 +364,24 @@ namespace DevsFingerPrint.Presentation
 
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
-#if DEBUG
-            int cantidad = huellasCargadas != null ? huellasCargadas.Count : 0;
-            MessageBox.Show($"[MODO MOCK] Huellas en caché: {cantidad}\nSimulador de Lector Activo", "DevsFingerPrint - Estado", MessageBoxButtons.OK, MessageBoxIcon.Information);
-#else
             var lector = biometricService.ObtenerLectorActual();
-            if (lector == null)
+            bool conectado = lector != null;
+            string serial = conectado ? lector.Description.SerialNumber : null;
+            int pendientes = 0;
+            try
             {
-                MessageBox.Show(
-                    "No hay un lector DigitalPersona conectado. Conecte el U.are.U 4500 para enrolar o fichar.",
-                    "DevsFingerPrint - Estado",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
+                pendientes = new List<Fichada>(fichadaRepository.ObtenerFichadasPendientes()).Count;
+            }
+            catch (Exception)
+            {
+                pendientes = 0;
             }
 
             MessageBox.Show(
-                $"Lector: {lector.Description.Name}\nNúmero de serie: {lector.Description.SerialNumber}",
-                "DevsFingerPrint - Estado",
+                CatalogoBiometrico.TextoEstado(conectado, serial, resumenCatalogo, pendientes, estadoApi),
+                "Estado del lector",
                 MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-#endif
+                conectado ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
 
         private void EnrolarNuevoEmpleado(object sender, EventArgs e)
@@ -361,7 +391,14 @@ namespace DevsFingerPrint.Presentation
 
             try
             {
-                List<Empleado> listaEmpleados = _apiClient.ObtenerEmpleados();
+                ResultadoLista<Empleado> empleadosRemotos = _apiClient.ObtenerEmpleados();
+                if (!empleadosRemotos.Exitoso)
+                {
+                    MessageBox.Show("No se pudo obtener el listado de empleados.", "Enrolamiento", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                List<Empleado> listaEmpleados = empleadosRemotos.Elementos;
                 var huellasLocales = fichadaRepository.ObtenerHuellasLocales();
 
                 using (var frmEnrolar = new EnrolarHuellaForm(biometricService, listaEmpleados, huellasLocales))

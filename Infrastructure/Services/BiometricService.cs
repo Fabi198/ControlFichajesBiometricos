@@ -92,16 +92,23 @@ namespace DevsFingerPrint.Infrastructure.Services
             return base64Falso;
         }
 
-        public int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<Huella> huellasCargadas)
+        public int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<HuellaEnMemoria> huellasCargadas)
         {
             Debug.WriteLine("[LOG Mock Identificación] Simulando búsqueda de empleado...");
 
-            // Simulación: Si hay huellas cargadas, retornamos el EmpleadoId de la primera por defecto
-            foreach (var huella in huellasCargadas)
+            if (huellasCargadas != null)
             {
-                Debug.WriteLine($"[LOG Mock Identificación] Match simulado con Empleado ID: {huella.EmpleadoId}");
-                OnEmpleadoIdentificado?.Invoke(huella.EmpleadoId);
-                return huella.EmpleadoId;
+                foreach (HuellaEnMemoria huella in huellasCargadas)
+                {
+                    if (huella == null)
+                    {
+                        continue;
+                    }
+
+                    Debug.WriteLine($"[LOG Mock Identificación] Match simulado con Empleado ID: {huella.EmpleadoId}");
+                    OnEmpleadoIdentificado?.Invoke(huella.EmpleadoId);
+                    return huella.EmpleadoId;
+                }
             }
 
             OnHuellaNoReconocida?.Invoke();
