@@ -4,8 +4,10 @@ using DevsFingerPrint.Infrastructure.Data;
 using DevsFingerPrint.Infrastructure.Repositories;
 using DevsFingerPrint.Infrastructure.Services;
 using DPUruNet;
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
@@ -25,7 +27,15 @@ namespace DevsFingerPrint.Presentation
         private System.Windows.Forms.Timer heartbeatTimer;
         private readonly System.Windows.Forms.Timer syncTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
-        private int sincronizacionEnCurso;
+        private readonly OperacionExclusiva sincronizacionExclusiva = new OperacionExclusiva();
+        private readonly OperacionExclusiva heartbeatExclusivo = new OperacionExclusiva();
+        private readonly ReintentoConexion reintento = new ReintentoConexion();
+        private bool lectorDisponible;
+        private bool sincronizando;
+        private bool apiConectada;
+        private int recursosLiberados;
+        private bool notificoCredenciales;
+        private MotivoCierre? motivoCierre;
 
         private ContextMenuStrip contextMenu;
 #if DEBUG
@@ -73,6 +83,7 @@ namespace DevsFingerPrint.Presentation
             contextMenu.Items.Add("Estado del lector biométrico", null, MostrarEstadoLector);
 #endif
             contextMenu.Items.Add("-");
+            contextMenu.Items.Add("Vincular o cambiar credenciales", null, VincularCredenciales);
             contextMenu.Items.Add("Salir", null, SalirAplicacion);
 
             notifyIcon = new NotifyIcon
@@ -80,11 +91,7 @@ namespace DevsFingerPrint.Presentation
                 Icon = Properties.Resources.circularColor,
                 ContextMenuStrip = contextMenu,
                 Visible = true,
-#if DEBUG
-                Text = "DevsFingerPrint - Control de Fichajes (Modo Mock)"
-#else
-                Text = "DevsFingerPrint - Lector DigitalPersona"
-#endif
+                Text = CicloVidaAgente.TextoEstado(EstadoOperativo.SinConexion)
             };
 
             // Eventos del servicio biométrico
@@ -92,6 +99,8 @@ namespace DevsFingerPrint.Presentation
             biometricService.OnEmpleadoIdentificado += OnEmpleadoIdentificado;
             biometricService.OnHuellaNoReconocida += OnHuellaNoReconocida;
             biometricService.OnEstadoCambiado += OnEstadoCambiado;
+            lectorFormularioOculto.BarraTareasCreada += (s, e) => RepublicarIcono();
+            SystemEvents.SessionEnding += OnSessionEnding;
 
             // Temporizador de sincronización periódica
             syncTimer = new System.Windows.Forms.Timer();
@@ -113,7 +122,9 @@ namespace DevsFingerPrint.Presentation
                 arranqueLectorTimer.Dispose();
                 arranqueLectorTimer = null;
 
-                if (!biometricService.IniciarLectura())
+                lectorDisponible = biometricService.IniciarLectura();
+                PublicarIcono();
+                if (!lectorDisponible)
                 {
                     MostrarNotificacion(
                         "Lector biométrico no disponible",
@@ -169,11 +180,18 @@ namespace DevsFingerPrint.Presentation
 
         private void EjecutarSincronizacionServidor()
         {
-            if (Interlocked.Exchange(ref sincronizacionEnCurso, 1) != 0)
+            if (Volatile.Read(ref recursosLiberados) != 0)
             {
                 return;
             }
 
+            if (!sincronizacionExclusiva.TryEnter())
+            {
+                return;
+            }
+
+            sincronizando = true;
+            PublicarIconoEnUi();
             AgentLog.Info("Inicio de sincronizacion.");
             System.Diagnostics.Debug.WriteLine($"\n[LOG Sync] --- Inicio de ciclo de sincronización ({DateTime.Now:HH:mm:ss}) ---");
 
@@ -198,6 +216,9 @@ namespace DevsFingerPrint.Presentation
                 {
                     fichadaRepository.SincronizarCatalogoEmpresa(empleadosDestino, huellasDestino);
                     resumenCatalogo.UltimaSincronizacionCorrecta = DateTime.Now;
+                    apiConectada = true;
+                    reintento.RegistrarRecuperacion();
+                    AplicarIntervalosEnUi();
                     estadoApi = "Conectada";
                     CargarHuellasLocales();
                     AgentLog.Info("Sincronizacion biometrica correcta. api-empleados=" + listaEmpleados.Elementos.Count
@@ -219,7 +240,16 @@ namespace DevsFingerPrint.Presentation
                 }
                 else
                 {
-                    estadoApi = listaEmpleados.Exitoso && listaHuellas.Exitoso ? "Respuesta rechazada" : "Sin conexión";
+                    apiConectada = listaEmpleados.Exitoso && listaHuellas.Exitoso;
+                    if (!apiConectada && !_apiClient.CredencialesRechazadas && (CicloVidaAgente.EsFalloTemporal(listaEmpleados.Motivo) || CicloVidaAgente.EsFalloTemporal(listaHuellas.Motivo)))
+                    {
+                        reintento.RegistrarFalloTemporal();
+                        AplicarIntervalosEnUi();
+                    }
+
+                    estadoApi = _apiClient.CredencialesRechazadas
+                        ? "Credenciales no válidas"
+                        : (listaEmpleados.Exitoso && listaHuellas.Exitoso ? "Respuesta rechazada" : "Sin conexión");
                     string motivo = listaEmpleados.Exitoso && listaHuellas.Exitoso
                         ? motivoContrato
                         : "empleados=" + listaEmpleados.Motivo + " huellas=" + listaHuellas.Motivo;
@@ -249,12 +279,18 @@ namespace DevsFingerPrint.Presentation
             }
             catch (Exception ex)
             {
+                apiConectada = false;
+                reintento.RegistrarFalloTemporal();
+                AplicarIntervalosEnUi();
+                estadoApi = "Sin conexión";
                 AgentLog.Error("Sincronizacion con error: " + ex.GetType().Name + ".");
                 System.Diagnostics.Debug.WriteLine($"[LOG Sync ERROR] Excepción durante la sincronización: {ex.Message}");
             }
             finally
             {
-                Interlocked.Exchange(ref sincronizacionEnCurso, 0);
+                sincronizando = false;
+                sincronizacionExclusiva.Salir();
+                PublicarIconoEnUi();
             }
         }
 
@@ -341,20 +377,29 @@ namespace DevsFingerPrint.Presentation
         private void OnEstadoCambiado(string mensaje)
         {
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric Status]: {mensaje}");
-            if (notifyIcon != null)
-            {
-#if DEBUG
-                string texto = $"DevsFingerPrint (Mock): {mensaje}";
-#else
-                string texto = $"DevsFingerPrint: {mensaje}";
-#endif
-                if (!string.IsNullOrEmpty(texto) && texto.Length > 63)
-                {
-                    texto = texto.Substring(0, 63);
-                }
+            lectorDisponible = InterpretarLectorDisponible(mensaje, lectorDisponible);
+            PublicarIcono();
+        }
 
-                notifyIcon.Text = texto;
+        private static bool InterpretarLectorDisponible(string mensaje, bool estadoActual)
+        {
+            if (string.IsNullOrEmpty(mensaje))
+            {
+                return estadoActual;
             }
+
+            string texto = mensaje.ToLowerInvariant();
+            if (texto.Contains("no se detect") || texto.Contains("no está conectado") || texto.Contains("no esta conectado") || texto.Contains("error"))
+            {
+                return false;
+            }
+
+            if (texto.Contains("lector conectado") || texto.Contains("listo"))
+            {
+                return true;
+            }
+
+            return estadoActual;
         }
 
         private void MostrarNotificacion(string titulo, string mensaje, ToolTipIcon icono)
@@ -436,26 +481,142 @@ namespace DevsFingerPrint.Presentation
             }
         }
 
+        private void VincularCredenciales(object sender, EventArgs e)
+        {
+            if (Volatile.Read(ref recursosLiberados) != 0)
+            {
+                return;
+            }
+
+            biometricService.DetenerLectura();
+            try
+            {
+                using (var formulario = new FormLogin(_apiClient))
+                {
+                    bool cancelado = formulario.ShowDialog() != DialogResult.OK;
+                    if (cancelado)
+                    {
+                        AgentLog.Info("Vinculacion cancelada. El agente permanece activo.");
+                    }
+                    else
+                    {
+                        notificoCredenciales = false;
+                        apiConectada = true;
+                        reintento.RegistrarRecuperacion();
+                        AplicarIntervalosEnUi();
+                        SincronizarConServidorAsync();
+                    }
+                }
+            }
+            finally
+            {
+                lectorDisponible = biometricService.IniciarLectura();
+                PublicarIcono();
+            }
+        }
+
         private void SalirAplicacion(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("[LOG MainTray] Cerrando aplicación.");
-            biometricService.DetenerLectura();
-            (biometricService as IDisposable)?.Dispose();
-            DetenerHeartbeat();
+            motivoCierre = MotivoCierre.Usuario;
+            AgentLog.Info(CicloVidaAgente.TextoCierre(MotivoCierre.Usuario));
+            LiberarRecursos();
+            Application.Exit();
+        }
+
+        protected override void ExitThreadCore()
+        {
+            if (motivoCierre == null)
+            {
+                motivoCierre = MotivoCierre.Contexto;
+                AgentLog.Info(CicloVidaAgente.TextoCierre(MotivoCierre.Contexto));
+            }
+
+            LiberarRecursos();
+            base.ExitThreadCore();
+        }
+
+        private void OnSessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            motivoCierre = MotivoCierre.SesionWindows;
+            AgentLog.Info(CicloVidaAgente.TextoCierre(MotivoCierre.SesionWindows));
+            try
+            {
+                if (lectorFormularioOculto != null && lectorFormularioOculto.IsHandleCreated && !lectorFormularioOculto.IsDisposed)
+                {
+                    lectorFormularioOculto.BeginInvoke(new Action(LiberarRecursos));
+                }
+                else
+                {
+                    LiberarRecursos();
+                }
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Cierre de sesion con error: " + ex.GetType().Name + ".");
+            }
+        }
+
+        private void LiberarRecursos()
+        {
+            if (Interlocked.Exchange(ref recursosLiberados, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                SystemEvents.SessionEnding -= OnSessionEnding;
+            }
+            catch (Exception)
+            {
+            }
+
+            if (syncTimer != null)
+            {
+                syncTimer.Stop();
+            }
+
+            if (heartbeatTimer != null)
+            {
+                heartbeatTimer.Stop();
+                heartbeatTimer.Dispose();
+                heartbeatTimer = null;
+            }
+
+            try
+            {
+                biometricService.DetenerLectura();
+                (biometricService as IDisposable)?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Cierre del lector con error: " + ex.GetType().Name + ".");
+            }
+
+            try
+            {
+                SQLiteConnection.ClearAllPools();
+            }
+            catch (Exception)
+            {
+            }
+
+            if (notifyIcon != null)
+            {
+                notifyIcon.Visible = false;
+                notifyIcon.Dispose();
+            }
 
             if (lectorFormularioOculto != null && !lectorFormularioOculto.IsDisposed)
             {
                 lectorFormularioOculto.Dispose();
             }
-
-            notifyIcon.Visible = false;
-            Application.Exit();
         }
 
         private void InicializarHeartbeat()
         {
             heartbeatTimer = new System.Windows.Forms.Timer();
-            heartbeatTimer.Interval = 30000;
+            heartbeatTimer.Interval = reintento.IntervaloHeartbeatMs;
             heartbeatTimer.Tick += (sender, e) => EjecutarHeartbeatPeriodico();
             heartbeatTimer.Start();
             EjecutarHeartbeatPeriodico();
@@ -463,26 +624,165 @@ namespace DevsFingerPrint.Presentation
 
         private void EjecutarHeartbeatPeriodico()
         {
-            ThreadPool.QueueUserWorkItem(_ =>
+            if (Volatile.Read(ref recursosLiberados) != 0)
             {
-                try
+                return;
+            }
+
+            if (!heartbeatExclusivo.TryEnter())
+            {
+                return;
+            }
+
+            try
+            {
+                ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    _apiClient.EnviarHeartbeat();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LOG TRAY ERROR] Excepción en heartbeat: {ex.Message}");
-                }
-            });
+                    try
+                    {
+                        if (Volatile.Read(ref recursosLiberados) != 0)
+                        {
+                            return;
+                        }
+
+                        bool aceptado = _apiClient.EnviarHeartbeat();
+                        if (aceptado)
+                        {
+                            apiConectada = true;
+                            notificoCredenciales = false;
+                            reintento.RegistrarRecuperacion();
+                        }
+                        else if (_apiClient.CredencialesRechazadas)
+                        {
+                            apiConectada = false;
+                            NotificarCredencialesUnaVez();
+                        }
+                        else
+                        {
+                            apiConectada = false;
+                            reintento.RegistrarFalloTemporal();
+                        }
+
+                        AplicarIntervalosEnUi();
+                        PublicarIconoEnUi();
+                    }
+                    catch (Exception ex)
+                    {
+                        AgentLog.Error("Heartbeat con error: " + ex.GetType().Name + ".");
+                        reintento.RegistrarFalloTemporal();
+                        AplicarIntervalosEnUi();
+                    }
+                    finally
+                    {
+                        heartbeatExclusivo.Salir();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                heartbeatExclusivo.Salir();
+                AgentLog.Error("Heartbeat con error: " + ex.GetType().Name + ".");
+            }
         }
 
-        private void DetenerHeartbeat()
+        private void RepublicarIcono()
         {
-            if (heartbeatTimer != null)
+            if (Volatile.Read(ref recursosLiberados) != 0 || notifyIcon == null)
             {
-                heartbeatTimer.Stop();
-                heartbeatTimer.Dispose();
-                heartbeatTimer = null;
+                return;
+            }
+
+            CicloVidaAgente.RepublicarIcono(
+                () => notifyIcon.Visible = false,
+                () =>
+                {
+                    notifyIcon.Icon = Properties.Resources.circularColor;
+                    notifyIcon.Visible = true;
+                    PublicarIcono();
+                });
+        }
+
+        private void PublicarIconoEnUi()
+        {
+            if (lectorFormularioOculto == null || lectorFormularioOculto.IsDisposed)
+            {
+                return;
+            }
+
+            if (lectorFormularioOculto.InvokeRequired)
+            {
+                lectorFormularioOculto.BeginInvoke(new Action(PublicarIcono));
+            }
+            else
+            {
+                PublicarIcono();
+            }
+        }
+
+        private void PublicarIcono()
+        {
+            if (notifyIcon == null || Volatile.Read(ref recursosLiberados) != 0)
+            {
+                return;
+            }
+
+            EstadoOperativo estado = CicloVidaAgente.ResolverEstado(
+                _apiClient != null && _apiClient.CredencialesRechazadas,
+                sincronizando,
+                apiConectada,
+                lectorDisponible);
+            notifyIcon.Text = CicloVidaAgente.TextoEstado(estado);
+        }
+
+        private void AplicarIntervalosEnUi()
+        {
+            if (lectorFormularioOculto == null || lectorFormularioOculto.IsDisposed)
+            {
+                return;
+            }
+
+            Action aplicar = () =>
+            {
+                if (heartbeatTimer != null)
+                {
+                    heartbeatTimer.Interval = reintento.IntervaloHeartbeatMs;
+                }
+
+                if (syncTimer != null)
+                {
+                    syncTimer.Interval = reintento.IntervaloSincronizacionMs;
+                }
+            };
+
+            if (lectorFormularioOculto.InvokeRequired)
+            {
+                lectorFormularioOculto.BeginInvoke(aplicar);
+            }
+            else
+            {
+                aplicar();
+            }
+        }
+
+        private void NotificarCredencialesUnaVez()
+        {
+            if (notificoCredenciales)
+            {
+                return;
+            }
+
+            notificoCredenciales = true;
+            Action avisar = () => MostrarNotificacion(
+                "Credenciales no válidas",
+                "Usá Vincular o cambiar credenciales para corregirlas.",
+                ToolTipIcon.Warning);
+            if (lectorFormularioOculto != null && lectorFormularioOculto.InvokeRequired)
+            {
+                lectorFormularioOculto.BeginInvoke(avisar);
+            }
+            else
+            {
+                avisar();
             }
         }
     }

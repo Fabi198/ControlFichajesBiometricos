@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 
 namespace DevsFingerPrint.Infrastructure.Services
 {
@@ -17,8 +18,12 @@ namespace DevsFingerPrint.Infrastructure.Services
         private readonly string _baseUrl;
         private string _authToken;
         private readonly Func<bool> _renovarSesion;
+        private readonly SemaphoreSlim _puertaRenovacion = new SemaphoreSlim(1, 1);
+        private int _generacionToken;
+        private bool _credencialesRechazadas;
 
         public string MensajeErrorAutenticacion { get; private set; }
+        public bool CredencialesRechazadas { get { return _credencialesRechazadas; } }
 
         public ApiClient(string baseUrl)
             : this(baseUrl, null)
@@ -60,13 +65,22 @@ namespace DevsFingerPrint.Infrastructure.Services
                     return false;
                 }
 
+                _credencialesRechazadas = false;
+                _generacionToken++;
                 AgentLog.Info("Login aceptado.");
                 return true;
             }
             catch (ApiHttpException ex)
             {
                 MensajeErrorAutenticacion = MensajePorEstado(ex.StatusCode);
-                AgentLog.Info("Login rechazado. HTTP " + (int)ex.StatusCode + ".");
+                int codigo = (int)ex.StatusCode;
+                if (codigo == 400 || codigo == 401 || codigo == 403)
+                {
+                    _authToken = null;
+                    _credencialesRechazadas = true;
+                }
+
+                AgentLog.Info("Login rechazado. HTTP " + codigo + ".");
                 return false;
             }
             catch (WebException ex)
@@ -91,58 +105,64 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool EnviarHeartbeat()
         {
-            AgentLog.Info("Inicio de heartbeat.");
-            System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] Iniciando proceso de envío de heartbeat...");
-
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            if (!HaySesion())
             {
                 AgentLog.Info("Heartbeat no enviado: sesion no disponible.");
-                System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] FALLO: No hay _authToken activo y la renovación de sesión falló.");
                 return false;
             }
 
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
+            {
+                ResultadoHeartbeat resultado = EnviarHeartbeatUnaVez();
+                if (resultado == ResultadoHeartbeat.Aceptado)
+                {
+                    return true;
+                }
+
+                if (resultado != ResultadoHeartbeat.NoAutorizado || intento == 1 || !RenovarTras401(generacion))
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private ResultadoHeartbeat EnviarHeartbeatUnaVez()
+        {
+            AgentLog.Info("Inicio de heartbeat.");
             int agenteId = ExtraerAgenteIdDeToken(_authToken);
             if (agenteId <= 0)
             {
-                System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] FALLO: No se pudo extraer un agente_id válido del token.");
-                return false;
+                return ResultadoHeartbeat.Fallo;
             }
 
             try
             {
-                string url = $"{_baseUrl}/api/agentes/{agenteId}/heartbeat";
-                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT] Realizando petición POST a: {url}");
-
-                // Cambiamos null por un JSON vacío "{}" por si el backend exige cuerpo en los POST
-                string jsonBody = "{}";
-                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
-
-                bool exito = !string.IsNullOrEmpty(response);
-                if (exito)
+                string url = _baseUrl + "/api/agentes/" + agenteId + "/heartbeat";
+                string response = RealizarPeticion("POST", url, "{}", _authToken);
+                if (!string.IsNullOrEmpty(response))
                 {
                     AgentLog.Info("Heartbeat aceptado.");
-                    System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ÉXITO: Latido enviado y confirmado por el servidor.");
-                }
-                else
-                {
-                    AgentLog.Info("Heartbeat sin confirmacion.");
-                    System.Diagnostics.Debug.WriteLine("[LOG HEARTBEAT] ADVERTENCIA: El servidor respondió con contenido vacío.");
+                    return ResultadoHeartbeat.Aceptado;
                 }
 
-                return exito;
+                AgentLog.Info("Heartbeat sin confirmacion.");
+                return ResultadoHeartbeat.Fallo;
             }
             catch (WebException ex)
             {
                 HttpStatusCode? statusCode = ObtenerCodigoEstado(ex);
+                if (statusCode == HttpStatusCode.Unauthorized)
+                {
+                    AgentLog.Info("Heartbeat rechazado. HTTP 401.");
+                    return ResultadoHeartbeat.NoAutorizado;
+                }
+
                 if (statusCode.HasValue)
                 {
                     AgentLog.Info("Heartbeat rechazado. HTTP " + (int)statusCode.Value + ".");
-                    System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Código HTTP: {(int)statusCode.Value}");
-
-                    if (statusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
-                    {
-                        return EnviarHeartbeat();
-                    }
                 }
                 else if (ex.Status == WebExceptionStatus.Timeout || ex.Status == WebExceptionStatus.RequestCanceled)
                 {
@@ -152,47 +172,53 @@ namespace DevsFingerPrint.Infrastructure.Services
                 {
                     AgentLog.Info("Heartbeat sin conexion.");
                 }
+
+                return ResultadoHeartbeat.Fallo;
             }
             catch (Exception ex)
             {
                 AgentLog.Info("Heartbeat rechazado. " + ex.GetType().Name + ".");
-                System.Diagnostics.Debug.WriteLine($"[LOG HEARTBEAT ERROR] Error general al enviar heartbeat: {ex.Message}");
+                return ResultadoHeartbeat.Fallo;
             }
-
-            return false;
         }
 
         public ResultadoLista<Huella> ObtenerHuellas()
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            if (!HaySesion())
             {
                 return ResultadoLista<Huella>.Fallo("sin-autorizacion");
             }
 
-            try
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
             {
-                int empresaId = ExtraerEmpresaIdDeToken(_authToken);
-                string url = _baseUrl + "/api/huellas/empresa/" + empresaId;
-                string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
-                return InterpretarLista<Huella>(jsonResponse);
-            }
-            catch (ApiHttpException ex)
-            {
-                if (ex.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                try
                 {
-                    return ObtenerHuellas();
+                    int empresaId = ExtraerEmpresaIdDeToken(_authToken);
+                    string url = _baseUrl + "/api/huellas/empresa/" + empresaId;
+                    string jsonResponse = RealizarPeticion("GET", url, null, _authToken);
+                    return InterpretarLista<Huella>(jsonResponse);
                 }
+                catch (ApiHttpException ex)
+                {
+                    if (ex.StatusCode == HttpStatusCode.Unauthorized && intento == 0 && RenovarTras401(generacion))
+                    {
+                        continue;
+                    }
 
-                return ResultadoLista<Huella>.Fallo(MotivoHttp(ex.StatusCode));
+                    return ResultadoLista<Huella>.Fallo(MotivoHttp(ex.StatusCode));
+                }
+                catch (WebException ex)
+                {
+                    return ResultadoLista<Huella>.Fallo(MotivoTransporte(ex));
+                }
+                catch (JsonException)
+                {
+                    return ResultadoLista<Huella>.Fallo("json");
+                }
             }
-            catch (WebException ex)
-            {
-                return ResultadoLista<Huella>.Fallo(MotivoTransporte(ex));
-            }
-            catch (JsonException)
-            {
-                return ResultadoLista<Huella>.Fallo("json");
-            }
+
+            return ResultadoLista<Huella>.Fallo("sin-autorizacion");
         }
 
         private int ExtraerEmpresaIdDeToken(string token)
@@ -274,33 +300,39 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public ResultadoLista<Empleado> ObtenerEmpleados()
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            if (!HaySesion())
             {
                 return ResultadoLista<Empleado>.Fallo("sin-autorizacion");
             }
 
-            try
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
             {
-                string jsonResponse = RealizarPeticion("GET", _baseUrl + "/api/empleados", null, _authToken);
-                return InterpretarLista<Empleado>(jsonResponse);
-            }
-            catch (ApiHttpException ex)
-            {
-                if (ex.StatusCode == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                try
                 {
-                    return ObtenerEmpleados();
+                    string jsonResponse = RealizarPeticion("GET", _baseUrl + "/api/empleados", null, _authToken);
+                    return InterpretarLista<Empleado>(jsonResponse);
                 }
+                catch (ApiHttpException ex)
+                {
+                    if (ex.StatusCode == HttpStatusCode.Unauthorized && intento == 0 && RenovarTras401(generacion))
+                    {
+                        continue;
+                    }
 
-                return ResultadoLista<Empleado>.Fallo(MotivoHttp(ex.StatusCode));
+                    return ResultadoLista<Empleado>.Fallo(MotivoHttp(ex.StatusCode));
+                }
+                catch (WebException ex)
+                {
+                    return ResultadoLista<Empleado>.Fallo(MotivoTransporte(ex));
+                }
+                catch (JsonException)
+                {
+                    return ResultadoLista<Empleado>.Fallo("json");
+                }
             }
-            catch (WebException ex)
-            {
-                return ResultadoLista<Empleado>.Fallo(MotivoTransporte(ex));
-            }
-            catch (JsonException)
-            {
-                return ResultadoLista<Empleado>.Fallo("json");
-            }
+
+            return ResultadoLista<Empleado>.Fallo("sin-autorizacion");
         }
 
         internal static string MotivoTransporte(WebException exception)
@@ -342,91 +374,126 @@ namespace DevsFingerPrint.Infrastructure.Services
         public bool EnviarFichadas(List<Fichada> fichadas)
         {
             if (fichadas == null || fichadas.Count == 0 || fichadas.Count > 500) return false;
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
-            try
+            if (!HaySesion()) return false;
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
             {
-                var solicitudes = fichadas.Select(f => new
+                try
                 {
-                    empleadoId = f.EmpleadoId,
-                    fechaHora = f.FechaHora
-                }).ToList();
-                string jsonBody = JsonConvert.SerializeObject(solicitudes);
-                string response = RealizarPeticion("POST", $"{_baseUrl}/api/fichadas/biometricas/bulk", jsonBody, _authToken);
-                int? recibidas = JObject.Parse(response)["recibidas"]?.Value<int>();
-                return recibidas == solicitudes.Count;
-            }
-            catch (WebException ex)
-            {
-                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
-                {
-                    return EnviarFichadas(fichadas);
+                    var solicitudes = fichadas.Select(f => new
+                    {
+                        empleadoId = f.EmpleadoId,
+                        fechaHora = f.FechaHora
+                    }).ToList();
+                    string jsonBody = JsonConvert.SerializeObject(solicitudes);
+                    string response = RealizarPeticion("POST", _baseUrl + "/api/fichadas/biometricas/bulk", jsonBody, _authToken);
+                    int? recibidas = JObject.Parse(response)["recibidas"]?.Value<int>();
+                    return recibidas == solicitudes.Count;
                 }
-                System.Diagnostics.Debug.WriteLine($"Error al enviar fichadas: {ex.Message}");
+                catch (WebException ex)
+                {
+                    if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && intento == 0 && RenovarTras401(generacion))
+                    {
+                        continue;
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+
+                return false;
             }
-            catch (JsonException ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"La API devolvió una confirmación de fichadas inválida: {ex.Message}");
-            }
+
             return false;
         }
 
         public bool GuardarHuella(Huella huella, int indiceDedo)
         {
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion()) return false;
-            try
+            if (!HaySesion()) return false;
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
             {
-                var payload = new
+                try
                 {
-                    empleadoId = huella.EmpleadoId,
-                    indiceDedo = indiceDedo,
-                    templateHuellaBase64 = huella.TemplateBiometrico
-                };
-
-                string jsonBody = JsonConvert.SerializeObject(payload);
-
-                // Ruta corregida según el contrato de la API
-                string url = $"{_baseUrl}/api/empleados/enrolar";
-
-                string response = RealizarPeticion("POST", url, jsonBody, _authToken);
-                return !string.IsNullOrEmpty(response);
-            }
-            catch (WebException ex)
-            {
-                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized)
-                {
-                    if (IntentarRenovarSesion())
+                    var payload = new
                     {
-                        return GuardarHuella(huella, indiceDedo);
+                        empleadoId = huella.EmpleadoId,
+                        indiceDedo = indiceDedo,
+                        templateHuellaBase64 = huella.TemplateBiometrico
+                    };
+
+                    string jsonBody = JsonConvert.SerializeObject(payload);
+                    string response = RealizarPeticion("POST", _baseUrl + "/api/empleados/enrolar", jsonBody, _authToken);
+                    return !string.IsNullOrEmpty(response);
+                }
+                catch (WebException ex)
+                {
+                    if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && intento == 0 && RenovarTras401(generacion))
+                    {
+                        continue;
                     }
                 }
-                System.Diagnostics.Debug.WriteLine("Error al guardar huella: " + ex.Message);
+                catch (Exception)
+                {
+                }
+
+                return false;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("Error general al guardar huella: " + ex.Message);
-            }
+
             return false;
         }
 
-        private bool IntentarRenovarSesion()
+        private bool HaySesion()
         {
+            return !_credencialesRechazadas && !string.IsNullOrEmpty(_authToken);
+        }
+
+        private bool RenovarTras401(int generacionVista)
+        {
+            _puertaRenovacion.Wait();
             try
             {
-                if (_renovarSesion != null)
+                if (_generacionToken != generacionVista)
                 {
-                    return _renovarSesion();
+                    return HaySesion();
                 }
 
-                if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
+                if (_credencialesRechazadas)
                 {
-                    return IniciarSesionAgente(clientId, clientSecret);
+                    return false;
                 }
+
+                bool ok = false;
+                try
+                {
+                    if (_renovarSesion != null)
+                    {
+                        ok = _renovarSesion();
+                    }
+                    else if (CredentialStorage.CargarCredenciales(out string clientId, out string clientSecret))
+                    {
+                        ok = IniciarSesionAgente(clientId, clientSecret);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AgentLog.Error("Renovacion con error: " + ex.GetType().Name + ".");
+                    ok = false;
+                }
+
+                return ok && HaySesion();
             }
-            catch (Exception ex)
+            finally
             {
-                System.Diagnostics.Debug.WriteLine($"Excepción al renovar sesión: {ex.Message}");
+                _puertaRenovacion.Release();
             }
-            return false;
+        }
+
+        private enum ResultadoHeartbeat
+        {
+            Aceptado,
+            NoAutorizado,
+            Fallo
         }
 
         private string RealizarPeticion(string metodo, string url, string jsonBody = null, string token = null)
@@ -560,12 +627,14 @@ namespace DevsFingerPrint.Infrastructure.Services
             AgentLog.Info("Inicio de sincronizacion de sucursal.");
             System.Diagnostics.Debug.WriteLine("[LOG SYNC] Iniciando SincronizarSucursal() para Agente...");
 
-            if (string.IsNullOrEmpty(_authToken) && !IntentarRenovarSesion())
+            if (!HaySesion())
             {
-                System.Diagnostics.Debug.WriteLine("[LOG SYNC] FALLO: No hay _authToken y falló la renovación de sesión.");
                 return false;
             }
 
+            int generacion = _generacionToken;
+            for (int intento = 0; intento < 2; intento++)
+            {
             try
             {
                 // Opcional: Se mantiene la extracción solo para fines de log y diagnóstico,
@@ -609,17 +678,18 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
             catch (WebException ex)
             {
-                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && IntentarRenovarSesion())
+                if (ObtenerCodigoEstado(ex) == HttpStatusCode.Unauthorized && intento == 0 && RenovarTras401(generacion))
                 {
-                    System.Diagnostics.Debug.WriteLine("[LOG SYNC] Token expirado (401), reintentando SincronizarSucursal()...");
-                    return SincronizarSucursal();
+                    continue;
                 }
-                System.Diagnostics.Debug.WriteLine($"Error al sincronizar sucursal (WebException): {ex.Message}");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Error general al sincronizar sucursal: {ex.Message}");
             }
+
+            return false;
+            }
+
             return false;
         }
 

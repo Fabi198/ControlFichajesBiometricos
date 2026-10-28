@@ -25,8 +25,8 @@ namespace DevsFingerPrint
             {
                 Exception ex = args.ExceptionObject as Exception;
                 AgentLog.Error(ex == null
-                    ? "Excepcion no controlada."
-                    : "Excepcion no controlada: " + ex.GetType().Name + ": " + ex.Message);
+                    ? CicloVidaAgente.TextoCierre(MotivoCierre.ExcepcionNoControlada)
+                    : CicloVidaAgente.TextoCierre(MotivoCierre.ExcepcionNoControlada) + " " + ex.GetType().Name + ".");
             };
 
             string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
@@ -53,12 +53,20 @@ namespace DevsFingerPrint
 
                 if (!logueado)
                 {
-                    FormLogin formInstalacion = new FormLogin(apiClient);
-                    if (formInstalacion.ShowDialog() != DialogResult.OK)
+                    using (FormLogin formInstalacion = new FormLogin(apiClient))
                     {
-                        AgentLog.Info("Inicio cancelado antes de autenticar.");
-                        return;
+                        bool cancelado = formInstalacion.ShowDialog() != DialogResult.OK;
+                        logueado = !cancelado;
+                        if (CicloVidaAgente.DebeTerminarProceso(logueado, cancelado))
+                        {
+                            return;
+                        }
                     }
+                }
+
+                if (!logueado)
+                {
+                    AgentLog.Info("Inicio sin sesion. El agente permanece activo.");
                 }
 
                 try
@@ -99,7 +107,7 @@ namespace DevsFingerPrint
 
         private static void MostrarFalloInesperado(Exception ex)
         {
-            AgentLog.Error("Excepcion no controlada: " + ex.GetType().Name + ": " + ex.Message);
+            AgentLog.Error(CicloVidaAgente.TextoCierre(MotivoCierre.ExcepcionNoControlada) + " " + ex.GetType().Name + ".");
             try
             {
                 MessageBox.Show(
