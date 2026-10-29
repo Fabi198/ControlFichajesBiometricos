@@ -2,13 +2,13 @@
 
 ## Publicación
 
-El working tree de `fix/agente-conectividad-produccion` no está commitado ni enviado. La publicación prevista es una rama y un pull request hacia `origin` (`Fabi198/ControlFichajesBiometricos`), sin reescribir historia y sin force push. No está hecha.
+La rama `fix/agente-conectividad-produccion` ya está en el fork `centralmat12/ControlFichajesBiometricos`. Falta la revisión y la aprobación del pull request #2 hacia `Fabi198/ControlFichajesBiometricos`. No tiene merge.
 
 ## Operación
 
 - Probar fichada, enrolamiento y reconexión con el lector U.are.U 4500 en Release.
 - Probar la cola offline contra la API que vaya a recibir las fichadas, sin asumir que `recibidas` signifique lo mismo que en el código local de la API si producción difiere.
-- El instalador 1.0.5 se compiló en esta PC con Inno Setup 7 y `UAREU_PACKAGE_DIR` apuntando al SDK local. No se instaló ni se publicó. El ejemplo del README todavía nombra la ruta de Inno Setup 6.
+- El instalador 1.0.5 se compiló con Inno Setup 7. No se instaló ni se distribuyó.
 
 ## Mejora futura: configuración remota de intervalos
 

@@ -1,6 +1,6 @@
 # Estado actual
 
-Hechos de la versión 1.0.5 en el working tree de `fix/agente-conectividad-produccion`. El último commit publicado en la rama sigue siendo `fa4a6dd` (`fix: evita instancias e iconos duplicados del agente`). Lo descrito abajo está sin commit.
+Hechos de la versión 1.0.5 en `fix/agente-conectividad-produccion`. La rama está publicada en el fork `centralmat12/ControlFichajesBiometricos`. El pull request #2 hacia `Fabi198/ControlFichajesBiometricos` está abierto y todavía no tiene merge.
 
 ## Comunicación
 
@@ -26,7 +26,7 @@ El icono muestra estado, última sincronización, reintentar conexión, vincular
 - `origin`: `https://github.com/Fabi198/ControlFichajesBiometricos.git`
 - `fork`: `https://github.com/centralmat12/ControlFichajesBiometricos.git`
 
-No se hizo fetch, commit, push, merge ni deploy en esta etapa.
+La rama `fix/agente-conectividad-produccion` está en el fork. El pull request es https://github.com/Fabi198/ControlFichajesBiometricos/pull/2, de `centralmat12:fix/agente-conectividad-produccion` hacia `main` de Fabi. No se hizo merge ni deploy.
 
 ## Verificación de esta etapa
 
