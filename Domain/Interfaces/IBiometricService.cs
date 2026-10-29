@@ -29,7 +29,7 @@ namespace DevsFingerPrint.Domain.Interfaces
 
         //Verificacion
         bool VerificarHuella(Fmd huellaCapturada, string templateBase64);
-        int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<Huella> huellasCargadas);
+        int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<HuellaEnMemoria> huellasCargadas);
 
     }
 }

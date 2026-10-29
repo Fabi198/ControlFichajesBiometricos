@@ -50,14 +50,14 @@ fichadas operativas.
 
 ### Preparación de aceptación física e instalación
 
-La versión actual es 1.0.1. El instalador se compila después de crear
-`bin\Release` y requiere Inno Setup 6. Configura `UAREU_PACKAGE_DIR` para que
-apunte al paquete oficial autorizado `U.are.U_Windows_3.2.0.89`, luego compila
+La versión actual es 1.0.5. El heartbeat espera 60 segundos, el catálogo de empleados y huellas 20 minutos, y la recuperación de fichadas pendientes 60 segundos. Una fichada nueva se envía al guardarse. Un error temporal de red alarga el reintento de ese canal hasta 5 minutos. Esos intervalos no se editan en el equipo. El instalador se compila después de crear
+`bin\Release` y requiere Inno Setup 7. La compilación verificada usó la versión 7.1.0. Configura `UAREU_PACKAGE_DIR` para que
+apunte al paquete oficial autorizado `U.are.U_Windows_3.2.0.89`, que debe contener `Docs\EULA SDK.rtf` y `RTE\x64`, luego compila
 `innoDevs.iss` con `ISCC.exe`. Por ejemplo:
 
 ```powershell
 $env:UAREU_PACKAGE_DIR = 'C:\ruta\autorizada\U.are.U_Windows_3.2.0.89'
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\innoDevs.iss
+& "$env:ProgramFiles\Inno Setup 7\ISCC.exe" .\innoDevs.iss
 ```
 
 El instalador muestra la EULA del fabricante y, si no detecta U.are.U RTE x64

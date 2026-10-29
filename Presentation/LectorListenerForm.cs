@@ -1,12 +1,18 @@
 ﻿using System;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace DevsFingerPrint.Presentation
 {
     public class LectorListenerForm : Form
     {
+        private readonly int mensajeBarraTareas;
+
+        public event EventHandler BarraTareasCreada;
+
         public LectorListenerForm()
         {
+            mensajeBarraTareas = RegisterWindowMessage("TaskbarCreated");
             this.ShowInTaskbar = false;
             this.WindowState = FormWindowState.Normal;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -37,5 +43,18 @@ namespace DevsFingerPrint.Presentation
             System.Diagnostics.Debug.WriteLine("[LOG LectorForm] El Handle de la ventana ha sido destruido.");
             base.OnHandleDestroyed(e);
         }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (Infrastructure.Services.CicloVidaAgente.EsMensajeBarraTareas(m.Msg, mensajeBarraTareas))
+            {
+                BarraTareasCreada?.Invoke(this, EventArgs.Empty);
+            }
+
+            base.WndProc(ref m);
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int RegisterWindowMessage(string lpString);
     }
 }

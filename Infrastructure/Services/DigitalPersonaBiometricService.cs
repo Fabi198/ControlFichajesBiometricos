@@ -158,12 +158,18 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool VerificarHuella(Fmd huellaCapturada, string templateBase64)
         {
-            if (huellaCapturada == null || string.IsNullOrWhiteSpace(templateBase64))
+            if (huellaCapturada == null)
             {
                 return false;
             }
 
-            Fmd almacenada = DeserializarTemplate(templateBase64);
+            ResultadoImportacionTemplate importada = TemplateBiometricoImporter.TryImportarTemplateBiometrico(templateBase64);
+            if (!importada.Exito || importada.Fmd == null)
+            {
+                return false;
+            }
+
+            Fmd almacenada = importada.Fmd;
             CompareResult comparacion = Comparison.Compare(huellaCapturada, 0, almacenada, 0);
             if (comparacion.ResultCode != Constants.ResultCode.DP_SUCCESS)
             {
@@ -173,7 +179,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             return comparacion.Score < UmbralIdentificacion;
         }
 
-        public int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<Huella> huellasCargadas)
+        public int? IdentificarEmpleado(Fmd huellaCapturada, IEnumerable<HuellaEnMemoria> huellasCargadas)
         {
             if (huellaCapturada == null || huellasCargadas == null)
             {
@@ -183,26 +189,15 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             var galeria = new List<Fmd>();
             var empleadosPorIndice = new List<int>();
-            foreach (Huella huella in huellasCargadas)
+            foreach (HuellaEnMemoria huella in huellasCargadas)
             {
-                if (huella == null || string.IsNullOrWhiteSpace(huella.TemplateBiometrico))
+                if (huella == null || huella.Plantilla == null || huella.EmpleadoId <= 0)
                 {
                     continue;
                 }
 
-                try
-                {
-                    galeria.Add(DeserializarTemplate(huella.TemplateBiometrico));
-                    empleadosPorIndice.Add(huella.EmpleadoId);
-                }
-                catch (Exception ex) when (
-                    ex is FormatException ||
-                    ex is ArgumentException ||
-                    ex is SDKException)
-                {
-                    Debug.WriteLine("[Biometría] Se omitió un template inválido del catálogo local: " + ex.Message);
-                    PublicarEstado("Hay una huella almacenada inválida; sincronice el catálogo antes de fichar.");
-                }
+                galeria.Add(huella.Plantilla);
+                empleadosPorIndice.Add(huella.EmpleadoId);
             }
 
             if (galeria.Count == 0)
@@ -486,19 +481,6 @@ namespace DevsFingerPrint.Infrastructure.Services
                 PublicarProgreso(progreso);
                 PublicarEstado("Enrolamiento biométrico completado.");
             }
-        }
-
-        private static Fmd DeserializarTemplate(string templateBase64)
-        {
-            byte[] contenido = Convert.FromBase64String(templateBase64);
-            string xml = Encoding.UTF8.GetString(contenido);
-            Fmd fmd = Fmd.DeserializeXml(xml);
-            if (fmd == null || fmd.ViewCount == 0)
-            {
-                throw new FormatException("El template biométrico está vacío o no es válido.");
-            }
-
-            return fmd;
         }
 
         private void CerrarLector()

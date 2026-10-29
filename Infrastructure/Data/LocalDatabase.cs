@@ -151,6 +151,31 @@ namespace DevsFingerPrint.Infrastructure.Data
         }
 
         // Método para leer el SerialLector guardado localmente cuando no hay internet
+        public static int ObtenerSucursalIdLocal()
+        {
+            try
+            {
+                using (var conexion = new SQLiteConnection(ConnectionString))
+                {
+                    conexion.Open();
+                    using (var cmd = new SQLiteCommand("SELECT Id FROM ConfiguracionLocal LIMIT 1", conexion))
+                    {
+                        object resultado = cmd.ExecuteScalar();
+                        if (resultado == null || resultado == DBNull.Value)
+                        {
+                            return 0;
+                        }
+
+                        return Convert.ToInt32(resultado);
+                    }
+                }
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         public static string ObtenerSerialLectorLocal()
         {
             try

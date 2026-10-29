@@ -16,6 +16,7 @@ namespace DevsFingerPrint.Domain.Models
         public string Apellido { get; set; }
         public string Departamento { get; set; }
         public string Categoria { get; set; }
+        public int? SucursalId { get; set; }
         public string Sucursal { get; set; }
         public string Horario { get; set; }
         public bool Activo { get; set; } = true;
