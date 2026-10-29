@@ -31,10 +31,14 @@ namespace DevsFingerPrint.Presentation
         private readonly LectorListenerForm lectorFormularioOculto;
         private System.Windows.Forms.Timer heartbeatTimer;
         private readonly System.Windows.Forms.Timer syncTimer;
+        private readonly System.Windows.Forms.Timer fichadasTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
         private readonly OperacionExclusiva sincronizacionExclusiva = new OperacionExclusiva();
         private readonly OperacionExclusiva heartbeatExclusivo = new OperacionExclusiva();
-        private readonly ReintentoConexion reintento = new ReintentoConexion();
+        private readonly PoliticaIntervalo politicaHeartbeat = new PoliticaIntervalo(CicloVidaAgente.IntervaloHeartbeatNormalMs, false);
+        private readonly PoliticaIntervalo politicaCatalogo = new PoliticaIntervalo(CicloVidaAgente.IntervaloSincronizacionNormalMs, true);
+        private readonly PoliticaIntervalo politicaFichadas = new PoliticaIntervalo(CicloVidaAgente.IntervaloRecuperacionFichadasNormalMs, false);
+        private EnvioFichadasPendientes envioPendientes;
         private bool lectorDisponible;
         private bool sincronizando;
         private bool apiConectada;
@@ -58,6 +62,10 @@ namespace DevsFingerPrint.Presentation
             lectorFormularioOculto = new LectorListenerForm();
             lectorFormularioOculto.CreateControl();
             fichadaRepository = new FichadaRepository();
+            envioPendientes = new EnvioFichadasPendientes(
+                () => fichadaRepository.ObtenerFichadasPendientes(),
+                lote => _apiClient.ClasificarEnvioFichadas(lote),
+                ids => fichadaRepository.MarcarComoSincronizadas(ids));
 #if DEBUG
             biometricService = new BiometricService(_apiClient);
 #else
@@ -129,8 +137,12 @@ namespace DevsFingerPrint.Presentation
             // Temporizador de sincronización periódica
             gestorIcono.RegistrarTimer();
             syncTimer = new System.Windows.Forms.Timer();
-            syncTimer.Interval = 60000 * 20;
+            syncTimer.Interval = politicaCatalogo.IntervaloMs;
             syncTimer.Tick += (s, e) => SincronizarConServidorAsync();
+            gestorIcono.RegistrarTimer();
+            fichadasTimer = new System.Windows.Forms.Timer();
+            fichadasTimer.Interval = politicaFichadas.IntervaloMs;
+            fichadasTimer.Tick += (s, e) => EnviarFichadasPendientesAsync();
 
             CargarHuellasLocales();
 
@@ -162,6 +174,8 @@ namespace DevsFingerPrint.Presentation
 
             SincronizarConServidorAsync();
             syncTimer.Start();
+            EnviarFichadasPendientesAsync();
+            fichadasTimer.Start();
             InicializarHeartbeat();
             if (instancia != null)
             {
@@ -205,7 +219,7 @@ namespace DevsFingerPrint.Presentation
 
         private void SincronizarConServidorAsync()
         {
-            ThreadPool.QueueUserWorkItem(_ => EjecutarSincronizacionServidor());
+            ColaTrabajoAgente.Encolar(EjecutarSincronizacionServidor);
         }
 
         private void EjecutarSincronizacionServidor()
@@ -247,7 +261,7 @@ namespace DevsFingerPrint.Presentation
                     fichadaRepository.SincronizarCatalogoEmpresa(empleadosDestino, huellasDestino);
                     resumenCatalogo.UltimaSincronizacionCorrecta = DateTime.Now;
                     apiConectada = true;
-                    reintento.RegistrarRecuperacion();
+                    politicaCatalogo.RegistrarRecuperacion();
                     AplicarIntervalosEnUi();
                     estadoApi = "Conectada";
                     CargarHuellasLocales();
@@ -273,7 +287,7 @@ namespace DevsFingerPrint.Presentation
                     apiConectada = listaEmpleados.Exitoso && listaHuellas.Exitoso;
                     if (!apiConectada && !_apiClient.CredencialesRechazadas && (CicloVidaAgente.EsFalloTemporal(listaEmpleados.Motivo) || CicloVidaAgente.EsFalloTemporal(listaHuellas.Motivo)))
                     {
-                        reintento.RegistrarFalloTemporal();
+                        politicaCatalogo.RegistrarFalloTemporal();
                         AplicarIntervalosEnUi();
                     }
 
@@ -286,31 +300,12 @@ namespace DevsFingerPrint.Presentation
                     AgentLog.Info("Sincronizacion biometrica conservada. " + motivo);
                 }
 
-                var pendientes = fichadaRepository.ObtenerFichadasPendientes();
-                var listaPendientes = new List<Fichada>(pendientes);
-                if (listaPendientes.Count > 500)
-                {
-                    listaPendientes = listaPendientes.GetRange(0, 500);
-                }
-
-                if (listaPendientes.Count > 0)
-                {
-                    bool enviadas = _apiClient.EnviarFichadas(listaPendientes);
-                    if (enviadas)
-                    {
-                        var ids = listaPendientes.ConvertAll(f => f.Id);
-                        fichadaRepository.MarcarComoSincronizadas(ids);
-                        MostrarNotificacion("Sincronización Exitosa", $"{listaPendientes.Count} fichada(s) enviadas al servidor.", ToolTipIcon.Info);
-                        fichadaRepository.LimpiarFichadasSincronizadas();
-                    }
-                }
-
                 AgentLog.Info("Sincronizacion finalizada.");
             }
             catch (Exception ex)
             {
                 apiConectada = false;
-                reintento.RegistrarFalloTemporal();
+                politicaCatalogo.RegistrarFalloTemporal();
                 AplicarIntervalosEnUi();
                 estadoApi = "Sin conexión";
                 AgentLog.Error("Sincronizacion con error: " + ex.GetType().Name + ".");
@@ -386,6 +381,7 @@ namespace DevsFingerPrint.Presentation
             };
 
             fichadaRepository.GuardarFichadaLocal(nuevaFichada);
+            EnviarFichadasPendientesAsync();
 #if DEBUG
             string dniEmpleado = fichadaRepository.ObtenerDniPorEmpleadoId(empleadoId) ?? empleadoId.ToString();
 #endif
@@ -532,9 +528,10 @@ namespace DevsFingerPrint.Presentation
                     {
                         notificoCredenciales = false;
                         apiConectada = true;
-                        reintento.RegistrarRecuperacion();
+                        politicaHeartbeat.RegistrarRecuperacion();
                         AplicarIntervalosEnUi();
                         SincronizarConServidorAsync();
+                        EnviarFichadasPendientesAsync();
                     }
                 }
             }
@@ -613,6 +610,11 @@ namespace DevsFingerPrint.Presentation
                 syncTimer.Stop();
             }
 
+            if (fichadasTimer != null)
+            {
+                fichadasTimer.Stop();
+            }
+
             if (heartbeatTimer != null)
             {
                 heartbeatTimer.Stop();
@@ -650,11 +652,58 @@ namespace DevsFingerPrint.Presentation
             }
         }
 
+        private void EnviarFichadasPendientesAsync()
+        {
+            ColaTrabajoAgente.Encolar(EjecutarEnvioFichadasPendientes);
+        }
+
+        private void EjecutarEnvioFichadasPendientes()
+        {
+            if (Volatile.Read(ref recursosLiberados) != 0 || envioPendientes == null)
+            {
+                return;
+            }
+
+            try
+            {
+                ResultadoEnvioFichadas resultado = envioPendientes.Ejecutar();
+                if (resultado.Estado == EstadoEnvioFichadas.Confirmado)
+                {
+                    politicaFichadas.RegistrarRecuperacion();
+                    AplicarIntervalosEnUi();
+                    if (resultado.Cantidad > 0)
+                    {
+                        MostrarNotificacion(
+                            "Sincronización Exitosa",
+                            resultado.Cantidad + " fichada(s) enviadas al servidor.",
+                            ToolTipIcon.Info);
+                        fichadaRepository.LimpiarFichadasSincronizadas();
+                    }
+                }
+                else if (resultado.Estado == EstadoEnvioFichadas.FalloTemporal)
+                {
+                    politicaFichadas.RegistrarFalloTemporal();
+                    AplicarIntervalosEnUi();
+                    AgentLog.Info("Envio de fichadas diferido por un fallo temporal.");
+                }
+                else if (resultado.Estado == EstadoEnvioFichadas.Fallo)
+                {
+                    AgentLog.Info("Envio de fichadas no confirmado.");
+                }
+            }
+            catch (Exception ex)
+            {
+                politicaFichadas.RegistrarFalloTemporal();
+                AplicarIntervalosEnUi();
+                AgentLog.Error("Envio de fichadas con error: " + ex.GetType().Name + ".");
+            }
+        }
+
         private void InicializarHeartbeat()
         {
             gestorIcono.RegistrarTimer();
             heartbeatTimer = new System.Windows.Forms.Timer();
-            heartbeatTimer.Interval = reintento.IntervaloHeartbeatMs;
+            heartbeatTimer.Interval = politicaHeartbeat.IntervaloMs;
             heartbeatTimer.Tick += (sender, e) => EjecutarHeartbeatPeriodico();
             heartbeatTimer.Start();
             EjecutarHeartbeatPeriodico();
@@ -674,7 +723,7 @@ namespace DevsFingerPrint.Presentation
 
             try
             {
-                ThreadPool.QueueUserWorkItem(_ =>
+                ColaTrabajoAgente.Encolar(() =>
                 {
                     try
                     {
@@ -683,12 +732,12 @@ namespace DevsFingerPrint.Presentation
                             return;
                         }
 
-                        bool aceptado = _apiClient.EnviarHeartbeat();
-                        if (aceptado)
+                        ResultadoCanal heartbeat = _apiClient.EnviarHeartbeatDetallado();
+                        if (heartbeat.Aceptado)
                         {
                             apiConectada = true;
                             notificoCredenciales = false;
-                            reintento.RegistrarRecuperacion();
+                            politicaHeartbeat.RegistrarRecuperacion();
                         }
                         else if (_apiClient.CredencialesRechazadas)
                         {
@@ -698,7 +747,10 @@ namespace DevsFingerPrint.Presentation
                         else
                         {
                             apiConectada = false;
-                            reintento.RegistrarFalloTemporal();
+                            if (CicloVidaAgente.EsFalloTemporal(heartbeat.Motivo))
+                            {
+                                politicaHeartbeat.RegistrarFalloTemporal();
+                            }
                         }
 
                         AplicarIntervalosEnUi();
@@ -707,7 +759,7 @@ namespace DevsFingerPrint.Presentation
                     catch (Exception ex)
                     {
                         AgentLog.Error("Heartbeat con error: " + ex.GetType().Name + ".");
-                        reintento.RegistrarFalloTemporal();
+                        politicaHeartbeat.RegistrarFalloTemporal();
                         AplicarIntervalosEnUi();
                     }
                     finally
@@ -788,12 +840,14 @@ namespace DevsFingerPrint.Presentation
                     }
                 }
 
-                bool aceptado = _apiClient != null && _apiClient.EnviarHeartbeat();
-                if (aceptado)
+                ResultadoCanal heartbeat = _apiClient == null
+                    ? ResultadoCanal.Fallo("sin-autorizacion")
+                    : _apiClient.EnviarHeartbeatDetallado();
+                if (heartbeat.Aceptado)
                 {
                     apiConectada = true;
                     notificoCredenciales = false;
-                    reintento.RegistrarRecuperacion();
+                    politicaHeartbeat.RegistrarRecuperacion();
                 }
                 else if (_apiClient != null && _apiClient.CredencialesRechazadas)
                 {
@@ -803,9 +857,13 @@ namespace DevsFingerPrint.Presentation
                 else
                 {
                     apiConectada = false;
-                    reintento.RegistrarFalloTemporal();
+                    if (CicloVidaAgente.EsFalloTemporal(heartbeat.Motivo))
+                    {
+                        politicaHeartbeat.RegistrarFalloTemporal();
+                    }
                 }
 
+                EjecutarEnvioFichadasPendientes();
                 AplicarIntervalosEnUi();
                 PublicarIconoEnUi();
                 AgentLog.Info("Reintento de conexion finalizado.");
@@ -903,15 +961,9 @@ namespace DevsFingerPrint.Presentation
 
             Action aplicar = () =>
             {
-                if (heartbeatTimer != null)
-                {
-                    heartbeatTimer.Interval = reintento.IntervaloHeartbeatMs;
-                }
-
-                if (syncTimer != null)
-                {
-                    syncTimer.Interval = reintento.IntervaloSincronizacionMs;
-                }
+                AsignarIntervalo(heartbeatTimer, politicaHeartbeat.IntervaloMs);
+                AsignarIntervalo(syncTimer, politicaCatalogo.IntervaloMs);
+                AsignarIntervalo(fichadasTimer, politicaFichadas.IntervaloMs);
             };
 
             if (lectorFormularioOculto.InvokeRequired)
@@ -922,6 +974,16 @@ namespace DevsFingerPrint.Presentation
             {
                 aplicar();
             }
+        }
+
+        private static void AsignarIntervalo(System.Windows.Forms.Timer timer, int intervaloMs)
+        {
+            if (timer == null || timer.Interval == intervaloMs)
+            {
+                return;
+            }
+
+            timer.Interval = intervaloMs;
         }
 
         private void NotificarCredencialesUnaVez()

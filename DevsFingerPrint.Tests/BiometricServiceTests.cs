@@ -56,7 +56,9 @@ namespace DevsFingerPrint.Tests
             service.OnHuellaNoReconocida += () => noRecognized++;
 
             var identifyMethod = typeof(BiometricService).GetMethod("IdentificarEmpleado");
-            var empleadoId = identifyMethod.Invoke(service, new object[] { null, Array.Empty<Huella>() });
+            Type tipoHuella = typeof(BiometricService).Assembly.GetType("DevsFingerPrint.Domain.Models.HuellaEnMemoria");
+            Array sinHuellas = Array.CreateInstance(tipoHuella, 0);
+            object empleadoId = identifyMethod.Invoke(service, new object[] { null, sinHuellas });
 
             Assert.Null(empleadoId);
             Assert.Equal(1, noRecognized);

@@ -164,13 +164,17 @@ namespace DevsFingerPrint.Tests
         [Fact]
         public void Recuperacion_VuelveAlIntervaloNormal()
         {
-            var reintento = new ReintentoConexion();
-            reintento.RegistrarFalloTemporal();
-            reintento.RegistrarFalloTemporal();
-            Assert.True(reintento.IntervaloHeartbeatMs > CicloVidaAgente.IntervaloHeartbeatNormalMs);
-            reintento.RegistrarRecuperacion();
-            Assert.Equal(CicloVidaAgente.IntervaloHeartbeatNormalMs, reintento.IntervaloHeartbeatMs);
-            Assert.Equal(CicloVidaAgente.IntervaloSincronizacionNormalMs, reintento.IntervaloSincronizacionMs);
+            var heartbeat = new PoliticaIntervalo(CicloVidaAgente.IntervaloHeartbeatNormalMs, false);
+            var catalogo = new PoliticaIntervalo(CicloVidaAgente.IntervaloSincronizacionNormalMs, true);
+            heartbeat.RegistrarFalloTemporal();
+            heartbeat.RegistrarFalloTemporal();
+            catalogo.RegistrarFalloTemporal();
+            Assert.True(heartbeat.IntervaloMs > CicloVidaAgente.IntervaloHeartbeatNormalMs);
+            Assert.Equal(CicloVidaAgente.IntervaloSincronizacionNormalMs, catalogo.IntervaloMs);
+            heartbeat.RegistrarRecuperacion();
+            catalogo.RegistrarRecuperacion();
+            Assert.Equal(CicloVidaAgente.IntervaloHeartbeatNormalMs, heartbeat.IntervaloMs);
+            Assert.Equal(CicloVidaAgente.IntervaloSincronizacionNormalMs, catalogo.IntervaloMs);
             Assert.Equal(EstadoOperativo.Conectado, CicloVidaAgente.ResolverEstado(false, false, true, true));
         }
 

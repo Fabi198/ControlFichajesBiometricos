@@ -139,6 +139,7 @@
     <Compile Include="Infrastructure\Repositories\FichadaRepository.cs" />
     <Compile Include="Infrastructure\Services\AgentLog.cs" />
     <Compile Include="Infrastructure\Services\CicloVidaAgente.cs" />
+    <Compile Include="Infrastructure\Services\EnvioFichadasPendientes.cs" />
     <Compile Include="Infrastructure\Services\InstanciaUnicaAgente.cs" />
     <Compile Include="Infrastructure\Services\CatalogoBiometrico.cs" />
     <Compile Include="Infrastructure\Services\TemplateBiometricoImporter.cs" />

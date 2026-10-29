@@ -106,37 +106,43 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public bool EnviarHeartbeat()
         {
+            return EnviarHeartbeatDetallado().Aceptado;
+        }
+
+        internal ResultadoCanal EnviarHeartbeatDetallado()
+        {
             if (!HaySesion())
             {
                 AgentLog.Info("Heartbeat no enviado: sesion no disponible.");
-                return false;
+                return ResultadoCanal.Fallo("sin-autorizacion");
             }
 
             int generacion = _generacionToken;
+            ResultadoCanal ultimo = ResultadoCanal.Fallo("sin-autorizacion");
             for (int intento = 0; intento < 2; intento++)
             {
-                ResultadoHeartbeat resultado = EnviarHeartbeatUnaVez();
-                if (resultado == ResultadoHeartbeat.Aceptado)
+                ultimo = EnviarHeartbeatUnaVez();
+                if (ultimo.Aceptado)
                 {
-                    return true;
+                    return ultimo;
                 }
 
-                if (resultado != ResultadoHeartbeat.NoAutorizado || intento == 1 || !RenovarTras401(generacion))
+                if (ultimo.Motivo != "http-401" || intento == 1 || !RenovarTras401(generacion))
                 {
-                    return false;
+                    return ultimo;
                 }
             }
 
-            return false;
+            return ultimo;
         }
 
-        private ResultadoHeartbeat EnviarHeartbeatUnaVez()
+        private ResultadoCanal EnviarHeartbeatUnaVez()
         {
             AgentLog.Info("Inicio de heartbeat.");
             int agenteId = ExtraerAgenteIdDeToken(_authToken);
             if (agenteId <= 0)
             {
-                return ResultadoHeartbeat.Fallo;
+                return ResultadoCanal.Fallo("token");
             }
 
             try
@@ -146,40 +152,38 @@ namespace DevsFingerPrint.Infrastructure.Services
                 if (!string.IsNullOrEmpty(response))
                 {
                     AgentLog.Info("Heartbeat aceptado.");
-                    return ResultadoHeartbeat.Aceptado;
+                    return ResultadoCanal.Ok();
                 }
 
                 AgentLog.Info("Heartbeat sin confirmacion.");
-                return ResultadoHeartbeat.Fallo;
+                return ResultadoCanal.Fallo("sin-confirmacion");
             }
             catch (WebException ex)
             {
-                HttpStatusCode? statusCode = ObtenerCodigoEstado(ex);
-                if (statusCode == HttpStatusCode.Unauthorized)
+                string motivo = MotivoDeWeb(ex);
+                if (motivo == "http-401")
                 {
                     AgentLog.Info("Heartbeat rechazado. HTTP 401.");
-                    return ResultadoHeartbeat.NoAutorizado;
                 }
-
-                if (statusCode.HasValue)
-                {
-                    AgentLog.Info("Heartbeat rechazado. HTTP " + (int)statusCode.Value + ".");
-                }
-                else if (ex.Status == WebExceptionStatus.Timeout || ex.Status == WebExceptionStatus.RequestCanceled)
+                else if (motivo == "timeout")
                 {
                     AgentLog.Info("Heartbeat rechazado por timeout.");
+                }
+                else if (motivo.StartsWith("http-", StringComparison.Ordinal))
+                {
+                    AgentLog.Info("Heartbeat rechazado. HTTP " + motivo.Substring(5) + ".");
                 }
                 else
                 {
                     AgentLog.Info("Heartbeat sin conexion.");
                 }
 
-                return ResultadoHeartbeat.Fallo;
+                return ResultadoCanal.Fallo(motivo);
             }
             catch (Exception ex)
             {
                 AgentLog.Info("Heartbeat rechazado. " + ex.GetType().Name + ".");
-                return ResultadoHeartbeat.Fallo;
+                return ResultadoCanal.Fallo("error");
             }
         }
 
@@ -372,10 +376,23 @@ namespace DevsFingerPrint.Infrastructure.Services
             return ResultadoLista<T>.Ok(lista);
         }
 
-        public bool EnviarFichadas(List<Fichada> fichadas)
+        public bool EnviarFichadas(IReadOnlyList<Fichada> fichadas)
         {
-            if (fichadas == null || fichadas.Count == 0 || fichadas.Count > 500) return false;
-            if (!HaySesion()) return false;
+            return ClasificarEnvioFichadas(fichadas) == EstadoEnvioFichadas.Confirmado;
+        }
+
+        internal EstadoEnvioFichadas ClasificarEnvioFichadas(IReadOnlyList<Fichada> fichadas)
+        {
+            if (fichadas == null || fichadas.Count == 0 || fichadas.Count > CicloVidaAgente.TamanoLoteFichadas)
+            {
+                return EstadoEnvioFichadas.Fallo;
+            }
+
+            if (!HaySesion())
+            {
+                return EstadoEnvioFichadas.Fallo;
+            }
+
             int generacion = _generacionToken;
             for (int intento = 0; intento < 2; intento++)
             {
@@ -389,7 +406,9 @@ namespace DevsFingerPrint.Infrastructure.Services
                     string jsonBody = JsonConvert.SerializeObject(solicitudes);
                     string response = RealizarPeticion("POST", _baseUrl + "/api/fichadas/biometricas/bulk", jsonBody, _authToken);
                     int? recibidas = JObject.Parse(response)["recibidas"]?.Value<int>();
-                    return recibidas == solicitudes.Count;
+                    return recibidas == solicitudes.Count
+                        ? EstadoEnvioFichadas.Confirmado
+                        : EstadoEnvioFichadas.Fallo;
                 }
                 catch (WebException ex)
                 {
@@ -397,15 +416,29 @@ namespace DevsFingerPrint.Infrastructure.Services
                     {
                         continue;
                     }
+
+                    return CicloVidaAgente.EsFalloTemporal(MotivoDeWeb(ex))
+                        ? EstadoEnvioFichadas.FalloTemporal
+                        : EstadoEnvioFichadas.Fallo;
                 }
                 catch (JsonException)
                 {
+                    return EstadoEnvioFichadas.Fallo;
                 }
-
-                return false;
             }
 
-            return false;
+            return EstadoEnvioFichadas.Fallo;
+        }
+
+        private static string MotivoDeWeb(WebException exception)
+        {
+            HttpStatusCode? statusCode = ObtenerCodigoEstado(exception);
+            if (statusCode.HasValue)
+            {
+                return MotivoHttp(statusCode.Value);
+            }
+
+            return MotivoTransporte(exception);
         }
 
         public bool GuardarHuella(Huella huella, int indiceDedo)
@@ -488,13 +521,6 @@ namespace DevsFingerPrint.Infrastructure.Services
             {
                 _puertaRenovacion.Release();
             }
-        }
-
-        private enum ResultadoHeartbeat
-        {
-            Aceptado,
-            NoAutorizado,
-            Fallo
         }
 
         private string RealizarPeticion(string metodo, string url, string jsonBody = null, string token = null)

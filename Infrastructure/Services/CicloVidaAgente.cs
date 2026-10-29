@@ -21,8 +21,10 @@ namespace DevsFingerPrint.Infrastructure.Services
 
     public static class CicloVidaAgente
     {
-        public const int IntervaloHeartbeatNormalMs = 30000;
+        public const int IntervaloHeartbeatNormalMs = 60000;
         public const int IntervaloSincronizacionNormalMs = 1200000;
+        public const int IntervaloRecuperacionFichadasNormalMs = 60000;
+        public const int TamanoLoteFichadas = 500;
 
         public static bool DebeTerminarProceso(bool autenticado, bool usuarioCanceloFormulario)
         {
@@ -343,30 +345,81 @@ namespace DevsFingerPrint.Infrastructure.Services
         }
     }
 
-    public sealed class ReintentoConexion
+    public readonly struct ResultadoCanal
     {
-        public int Fallos { get; private set; }
-        public int IntervaloHeartbeatMs { get; private set; }
-        public int IntervaloSincronizacionMs { get; private set; }
+        public bool Aceptado { get; }
+        public string Motivo { get; }
 
-        public ReintentoConexion()
+        private ResultadoCanal(bool aceptado, string motivo)
         {
-            IntervaloHeartbeatMs = CicloVidaAgente.IntervaloHeartbeatNormalMs;
-            IntervaloSincronizacionMs = CicloVidaAgente.IntervaloSincronizacionNormalMs;
+            Aceptado = aceptado;
+            Motivo = motivo ?? string.Empty;
+        }
+
+        public static ResultadoCanal Ok()
+        {
+            return new ResultadoCanal(true, string.Empty);
+        }
+
+        public static ResultadoCanal Fallo(string motivo)
+        {
+            return new ResultadoCanal(false, motivo);
+        }
+    }
+
+    public sealed class PoliticaIntervalo
+    {
+        private readonly object _sync = new object();
+        private readonly bool _conservarIntervaloNormal;
+        private readonly int _intervaloNormalMs;
+
+        public int Fallos { get; private set; }
+        public int IntervaloMs { get; private set; }
+
+        public PoliticaIntervalo(int intervaloNormalMs, bool conservarIntervaloNormal)
+        {
+            if (intervaloNormalMs <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(intervaloNormalMs));
+            }
+
+            _intervaloNormalMs = intervaloNormalMs;
+            _conservarIntervaloNormal = conservarIntervaloNormal;
+            IntervaloMs = intervaloNormalMs;
         }
 
         public void RegistrarFalloTemporal()
         {
-            Fallos++;
-            IntervaloHeartbeatMs = CicloVidaAgente.IntervaloReintentoMs(Fallos);
-            IntervaloSincronizacionMs = Math.Max(IntervaloHeartbeatMs, 60000);
+            lock (_sync)
+            {
+                Fallos++;
+                int propuesto = CicloVidaAgente.IntervaloReintentoMs(Fallos);
+                IntervaloMs = _conservarIntervaloNormal
+                    ? Math.Max(_intervaloNormalMs, propuesto)
+                    : propuesto;
+            }
         }
 
         public void RegistrarRecuperacion()
         {
-            Fallos = 0;
-            IntervaloHeartbeatMs = CicloVidaAgente.IntervaloHeartbeatNormalMs;
-            IntervaloSincronizacionMs = CicloVidaAgente.IntervaloSincronizacionNormalMs;
+            lock (_sync)
+            {
+                Fallos = 0;
+                IntervaloMs = _intervaloNormalMs;
+            }
+        }
+    }
+
+    public static class ColaTrabajoAgente
+    {
+        public static void Encolar(Action trabajo)
+        {
+            if (trabajo == null)
+            {
+                return;
+            }
+
+            System.Threading.ThreadPool.QueueUserWorkItem(_ => trabajo());
         }
     }
 
