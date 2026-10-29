@@ -1,0 +1,18 @@
+---
+description: Consultar y mantener la documentación de continuidad del agente biométrico
+alwaysApply: true
+---
+
+# Continuidad del agente biométrico
+
+Antes de modificar comportamiento, leer `AGENTS.md`, `docs/ARQUITECTURA.md`, `docs/ESTADO_ACTUAL.md`, `docs/PENDIENTES.md` y `docs/DECISIONES_TECNICAS.md`.
+
+Estas guías viven en este repositorio. El frontend y la API tienen las suyas. No editar esos repositorios para reflejar un cambio del agente salvo pedido explícito.
+
+Al cerrar un cambio verificado, actualizar el documento que corresponda:
+
+- comportamiento nuevo o corregido con evidencia: `docs/ESTADO_ACTUAL.md`
+- tarea abierta o fallo reproducido: `docs/PENDIENTES.md`
+- elección que haya que respetar después: `docs/DECISIONES_TECNICAS.md`
+
+No anotar secretos, tokens, `clientSecret` ni plantillas biométricas. No dar por publicado un cambio que no se haya enviado al remoto.
