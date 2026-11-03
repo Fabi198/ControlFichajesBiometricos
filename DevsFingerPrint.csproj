@@ -112,6 +112,7 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Speech" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="WindowsBase" />
@@ -143,6 +144,7 @@
     <Compile Include="Infrastructure\Services\InstanciaUnicaAgente.cs" />
     <Compile Include="Infrastructure\Services\CatalogoBiometrico.cs" />
     <Compile Include="Infrastructure\Services\TemplateBiometricoImporter.cs" />
+    <Compile Include="Infrastructure\Services\SeleccionLector.cs" />
     <Compile Include="Infrastructure\Services\ApiClient.cs" />
     <Compile Include="Infrastructure\Services\BiometricService.cs" Condition=" '$(Configuration)' == 'Debug' " />
     <Compile Include="Infrastructure\Services\ConfigLocal.cs" />

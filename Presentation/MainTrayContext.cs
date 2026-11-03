@@ -32,6 +32,7 @@ namespace DevsFingerPrint.Presentation
         private System.Windows.Forms.Timer heartbeatTimer;
         private readonly System.Windows.Forms.Timer syncTimer;
         private readonly System.Windows.Forms.Timer fichadasTimer;
+        private readonly System.Windows.Forms.Timer reintentoLectorTimer;
         private System.Windows.Forms.Timer arranqueLectorTimer;
         private readonly OperacionExclusiva sincronizacionExclusiva = new OperacionExclusiva();
         private readonly OperacionExclusiva heartbeatExclusivo = new OperacionExclusiva();
@@ -61,6 +62,11 @@ namespace DevsFingerPrint.Presentation
             _apiClient = apiClient;
             lectorFormularioOculto = new LectorListenerForm();
             lectorFormularioOculto.CreateControl();
+            reintentoLectorTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 3000
+            };
+            reintentoLectorTimer.Tick += OnReintentoLector;
             fichadaRepository = new FichadaRepository();
             envioPendientes = new EnvioFichadasPendientes(
                 () => fichadaRepository.ObtenerFichadasPendientes(),
@@ -128,6 +134,7 @@ namespace DevsFingerPrint.Presentation
             biometricService.OnEmpleadoIdentificado += OnEmpleadoIdentificado;
             biometricService.OnHuellaNoReconocida += OnHuellaNoReconocida;
             biometricService.OnEstadoCambiado += OnEstadoCambiado;
+            lectorFormularioOculto.DispositivoCambiado += OnDispositivoCambiado;
             if (gestorIcono.SuscribirBarra())
             {
                 lectorFormularioOculto.BarraTareasCreada += OnBarraTareasCreada;
@@ -164,6 +171,7 @@ namespace DevsFingerPrint.Presentation
                 PublicarIcono();
                 if (!lectorDisponible)
                 {
+                    reintentoLectorTimer.Start();
                     MostrarNotificacion(
                         "Lector biométrico no disponible",
                         "Conecte el lector U.are.U 4500 para habilitar el fichaje.",
@@ -397,17 +405,91 @@ namespace DevsFingerPrint.Presentation
         private void OnHuellaNoReconocida()
         {
             System.Diagnostics.Debug.WriteLine("[LOG Biometric FAIL] Huella no reconocida.");
+            System.Media.SystemSounds.Hand.Play();
+            EmitirMensajeVoz("Huella no reconocida");
             MostrarNotificacion("Acceso Denegado", "Huella no reconocida.", ToolTipIcon.Warning);
+        }
+
+        private static void EmitirMensajeVoz(string mensaje)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    using (var synth = new System.Speech.Synthesis.SpeechSynthesizer())
+                    {
+                        synth.Speak(mensaje);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Voz] Error al reproducir mensaje: " + ex.Message);
+                }
+            });
         }
 
         private void OnEstadoCambiado(string mensaje)
         {
             System.Diagnostics.Debug.WriteLine($"[LOG Biometric Status]: {mensaje}");
             lectorDisponible = InterpretarLectorDisponible(mensaje, lectorDisponible);
+            if (!lectorDisponible && !reintentoLectorTimer.Enabled &&
+                Volatile.Read(ref recursosLiberados) == 0)
+            {
+                reintentoLectorTimer.Interval = 3000;
+                reintentoLectorTimer.Start();
+            }
+
             PublicarIcono();
         }
 
-        private static bool InterpretarLectorDisponible(string mensaje, bool estadoActual)
+        private void OnDispositivoCambiado(object sender, EventArgs e)
+        {
+            if (Volatile.Read(ref recursosLiberados) != 0)
+            {
+                return;
+            }
+
+            reintentoLectorTimer.Stop();
+            reintentoLectorTimer.Interval = 500;
+            reintentoLectorTimer.Start();
+        }
+
+        private void OnReintentoLector(object sender, EventArgs e)
+        {
+            reintentoLectorTimer.Stop();
+            if (Volatile.Read(ref recursosLiberados) != 0)
+            {
+                return;
+            }
+
+            bool lectorEstabaDisponible = lectorDisponible;
+            try
+            {
+                lectorDisponible = biometricService.ReintentarConexion();
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Error("Reintento de conexión del lector con error: " + ex.GetType().Name + ".");
+                lectorDisponible = false;
+            }
+
+            if (!lectorDisponible)
+            {
+                reintentoLectorTimer.Interval = 3000;
+                reintentoLectorTimer.Start();
+            }
+            else if (!lectorEstabaDisponible)
+            {
+                MostrarNotificacion(
+                    "Lector biométrico conectado",
+                    "El lector U.are.U volvió a estar disponible.",
+                    ToolTipIcon.Info);
+            }
+
+            PublicarIcono();
+        }
+
+        internal static bool InterpretarLectorDisponible(string mensaje, bool estadoActual)
         {
             if (string.IsNullOrEmpty(mensaje))
             {
@@ -415,7 +497,22 @@ namespace DevsFingerPrint.Presentation
             }
 
             string texto = mensaje.ToLowerInvariant();
-            if (texto.Contains("no se detect") || texto.Contains("no está conectado") || texto.Contains("no esta conectado") || texto.Contains("error"))
+            if (texto.Contains("no se detect") ||
+                texto.Contains("no está conectado") ||
+                texto.Contains("no esta conectado") ||
+                texto.Contains("no está listo") ||
+                texto.Contains("no esta listo") ||
+                texto.Contains("no se pudo abrir el lector") ||
+                texto.Contains("no se pudo consultar el lector") ||
+                texto.Contains("no se pudo calibrar") ||
+                texto.Contains("no se pudo iniciar la captura") ||
+                texto.Contains("lector digitalpersona reportó fallo") ||
+                texto.Contains("lector digitalpersona reporto fallo") ||
+                texto.Contains("la captura del lector falló") ||
+                texto.Contains("la captura del lector fallo") ||
+                texto.Contains("error al inicializar el lector") ||
+                texto.Contains("error al iniciar captura") ||
+                texto.Contains("error"))
             {
                 return false;
             }
@@ -436,7 +533,7 @@ namespace DevsFingerPrint.Presentation
         private void MostrarEstadoLector(object sender, EventArgs e)
         {
             var lector = biometricService.ObtenerLectorActual();
-            bool conectado = lector != null;
+            bool conectado = lectorDisponible && lector != null;
             string serial = conectado ? lector.Description.SerialNumber : null;
             int pendientes = 0;
             try
@@ -603,6 +700,13 @@ namespace DevsFingerPrint.Presentation
             if (lectorFormularioOculto != null)
             {
                 lectorFormularioOculto.BarraTareasCreada -= OnBarraTareasCreada;
+                lectorFormularioOculto.DispositivoCambiado -= OnDispositivoCambiado;
+            }
+
+            if (reintentoLectorTimer != null)
+            {
+                reintentoLectorTimer.Stop();
+                reintentoLectorTimer.Dispose();
             }
 
             if (syncTimer != null)

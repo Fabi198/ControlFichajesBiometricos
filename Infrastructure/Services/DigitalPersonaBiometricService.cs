@@ -55,17 +55,36 @@ namespace DevsFingerPrint.Infrastructure.Services
                     throw new ObjectDisposedException(nameof(DigitalPersonaBiometricService));
                 }
 
+                enrolando = false;
+                muestrasEnrolamiento = null;
+                templateEnrolamiento = null;
+                leyendo = true;
                 if (!AsegurarLectorAbierto())
                 {
                     return false;
                 }
 
-                enrolando = false;
-                muestrasEnrolamiento = null;
-                templateEnrolamiento = null;
-                leyendo = true;
                 PublicarEstado("Lector DigitalPersona listo: " + reader.Description.Name);
                 return ProgramarCaptura();
+            }
+        }
+
+        public bool ReintentarConexion()
+        {
+            lock (sync)
+            {
+                if (liberado)
+                {
+                    throw new ObjectDisposedException(nameof(DigitalPersonaBiometricService));
+                }
+
+                CerrarLector(false);
+                if (!AsegurarLectorAbierto())
+                {
+                    return false;
+                }
+
+                return !leyendo && !enrolando || ProgramarCaptura();
             }
         }
 
@@ -100,15 +119,15 @@ namespace DevsFingerPrint.Infrastructure.Services
                     throw new ObjectDisposedException(nameof(DigitalPersonaBiometricService));
                 }
 
+                leyendo = false;
+                enrolando = true;
+                muestrasEnrolamiento = new List<Fmd>(CapturasEnrolamientoRequeridas);
+                templateEnrolamiento = null;
                 if (!AsegurarLectorAbierto())
                 {
                     return;
                 }
 
-                leyendo = false;
-                enrolando = true;
-                muestrasEnrolamiento = new List<Fmd>(CapturasEnrolamientoRequeridas);
-                templateEnrolamiento = null;
                 PublicarProgreso(0);
                 PublicarEstado("Enrolamiento listo. Coloque el mismo dedo en el lector.");
                 ProgramarCaptura();
@@ -215,7 +234,9 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             if (identificacion.ResultCode != Constants.ResultCode.DP_SUCCESS)
             {
-                throw new InvalidOperationException("DigitalPersona no pudo identificar la huella: " + identificacion.ResultCode);
+                PublicarEstado("DigitalPersona no pudo identificar la huella: " + identificacion.ResultCode);
+                PublicarNoReconocida();
+                return null;
             }
 
             if (identificacion.Indexes == null || identificacion.Indexes.Length == 0)
@@ -239,7 +260,7 @@ namespace DevsFingerPrint.Infrastructure.Services
 
         public void Dispose()
         {
-            CerrarLector();
+            CerrarLector(true);
             lock (sync)
             {
                 liberado = true;
@@ -247,6 +268,29 @@ namespace DevsFingerPrint.Infrastructure.Services
         }
 
         private bool AsegurarLectorAbierto()
+        {
+            if (reader != null)
+            {
+                try
+                {
+                    if (reader.GetStatus() == Constants.ResultCode.DP_SUCCESS &&
+                        (reader.Status.Status == Constants.ReaderStatuses.DP_STATUS_READY ||
+                         reader.Status.Status == Constants.ReaderStatuses.DP_STATUS_NEED_CALIBRATION))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Biometría] No se pudo consultar el lector abierto: " + ex.Message);
+                }
+
+                CerrarLector(false);
+            }
+            return AbrirLectorInterno();
+        }
+
+        private bool AbrirLectorInterno()
         {
             if (reader != null)
             {
@@ -259,34 +303,33 @@ namespace DevsFingerPrint.Infrastructure.Services
                 if (readers == null || readers.Count == 0)
                 {
                     PublicarEstado("No se detectó un lector DigitalPersona. Conecte el U.are.U 4500 y vuelva a iniciar.");
-                    CerrarLector();
+                    CerrarLector(false);
                     return false;
                 }
 
                 ConfiguracionLocalDto configuracion = DispositivoConfigService.LeerConfiguracion();
                 string serialGuardado = configuracion == null ? null : configuracion.SerialLector;
-                reader = string.IsNullOrWhiteSpace(serialGuardado)
-                    ? readers[0]
-                    : readers.Cast<Reader>().FirstOrDefault(item =>
-                        string.Equals(item.Description.SerialNumber, serialGuardado, StringComparison.OrdinalIgnoreCase));
-
-                if (reader == null && readers.Count > 0)
-                {
-                    reader = readers[0];
-                }
+                reader = SeleccionLector.PorSerial(
+                    readers.Cast<Reader>(),
+                    serialGuardado,
+                    item => item.Description.SerialNumber);
 
                 if (reader == null)
                 {
-                    PublicarEstado("El lector guardado no está conectado. Verifique el U.are.U 4500.");
-                    CerrarLector();
+                    PublicarEstado("El lector guardado no está conectado. Verifique que sea el mismo U.are.U 4500.");
+                    CerrarLector(false);
                     return false;
                 }
 
-                Constants.ResultCode apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                Constants.ResultCode apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);
+                if (apertura != Constants.ResultCode.DP_SUCCESS)
+                {
+                    apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                }
                 if (apertura != Constants.ResultCode.DP_SUCCESS)
                 {
                     PublicarEstado("No se pudo abrir el lector DigitalPersona: " + apertura);
-                    CerrarLector();
+                    CerrarLector(false);
                     return false;
                 }
 
@@ -305,7 +348,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             {
                 Debug.WriteLine("[Biometría] No se pudo inicializar el lector: " + ex);
                 PublicarEstado("Error al inicializar el lector DigitalPersona: " + ex.Message);
-                CerrarLector();
+                CerrarLector(false);
                 return false;
             }
         }
@@ -323,6 +366,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 if (estado != Constants.ResultCode.DP_SUCCESS)
                 {
                     PublicarEstado("No se pudo consultar el lector DigitalPersona: " + estado);
+                    CerrarLector(false);
                     return false;
                 }
 
@@ -332,6 +376,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                     if (calibracion != Constants.ResultCode.DP_SUCCESS)
                     {
                         PublicarEstado("No se pudo calibrar el lector DigitalPersona: " + calibracion);
+                        CerrarLector(false);
                         return false;
                     }
                 }
@@ -349,6 +394,12 @@ namespace DevsFingerPrint.Infrastructure.Services
                     });
                     return true;
                 }
+                else if (reader.Status.Status == Constants.ReaderStatuses.DP_STATUS_FAILURE)
+                {
+                    PublicarEstado("El lector DigitalPersona reportó fallo.");
+                    CerrarLector(false);
+                    return false;
+                }
                 else if (reader.Status.Status != Constants.ReaderStatuses.DP_STATUS_READY)
                 {
                     PublicarEstado("El lector DigitalPersona no está listo: " + reader.Status.Status);
@@ -365,6 +416,7 @@ namespace DevsFingerPrint.Infrastructure.Services
                 if (inicio != Constants.ResultCode.DP_SUCCESS)
                 {
                     PublicarEstado("No se pudo iniciar la captura biométrica: " + inicio);
+                    CerrarLector(false);
                     return false;
                 }
 
@@ -375,6 +427,7 @@ namespace DevsFingerPrint.Infrastructure.Services
             {
                 Debug.WriteLine("[Biometría] Error al iniciar captura: " + ex);
                 PublicarEstado("Error al iniciar captura biométrica: " + ex.Message);
+                CerrarLector(false);
                 return false;
             }
         }
@@ -434,6 +487,11 @@ namespace DevsFingerPrint.Infrastructure.Services
                 Constants.Formats.Fmd.ANSI);
             if (extraccion.ResultCode != Constants.ResultCode.DP_SUCCESS || extraccion.Data == null)
             {
+                if (!enModoEnrolamiento)
+                {
+                    PublicarNoReconocida();
+                }
+
                 if (extraccion.ResultCode != Constants.ResultCode.DP_TOO_SMALL_AREA)
                 {
                     PublicarEstado("No se pudieron extraer características de la huella: " + extraccion.ResultCode);
@@ -483,13 +541,17 @@ namespace DevsFingerPrint.Infrastructure.Services
             }
         }
 
-        private void CerrarLector()
+        private void CerrarLector(bool detenerOperacion)
         {
             lock (sync)
             {
-                leyendo = false;
-                enrolando = false;
-                muestrasEnrolamiento = null;
+                if (detenerOperacion)
+                {
+                    leyendo = false;
+                    enrolando = false;
+                    muestrasEnrolamiento = null;
+                }
+
                 capturaEnCurso = false;
                 if (reader != null)
                 {

@@ -20,6 +20,7 @@ namespace DevsFingerPrint.Domain.Interfaces
 
         // Control del lector USB
         bool IniciarLectura();
+        bool ReintentarConexion();
         void DetenerLectura();
 
         //Enrolamiento

@@ -6,7 +6,7 @@ La rama `fix/agente-conectividad-produccion` ya está en el fork `centralmat12/C
 
 ## Operación
 
-- Probar fichada, enrolamiento y reconexión con el lector U.are.U 4500 en Release.
+- Probar fichada, enrolamiento y reconexión automática con el mismo lector U.are.U 4500 en Release, conservando el serial local y las credenciales.
 - Probar la cola offline contra la API que vaya a recibir las fichadas, sin asumir que `recibidas` signifique lo mismo que en el código local de la API si producción difiere.
 - El instalador 1.0.5 se compiló con Inno Setup 7. No se instaló ni se distribuyó.
 

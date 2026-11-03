@@ -22,7 +22,7 @@ Sigue vigente el mutex de instancia única y la republicación del icono cuando 
 
 ## Lector según la configuración de compilación
 
-Debug incluye el simulador y la simulación de fichadas. Release incluye DigitalPersona. No se mezclan en el mismo binario.
+Debug incluye el simulador y la simulación de fichadas. Release incluye DigitalPersona. No se mezclan en el mismo binario. En Release el lector se abre con prioridad exclusiva (fallback cooperativo) para permitir captura continua y notificaciones en segundo plano con otras ventanas activas.
 
 ## Documentación de continuidad
 

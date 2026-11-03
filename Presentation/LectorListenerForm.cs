@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -8,7 +8,13 @@ namespace DevsFingerPrint.Presentation
     {
         private readonly int mensajeBarraTareas;
 
+        private const int WM_DEVICECHANGE = 0x0219;
+        private const int DBT_DEVICEARRIVAL = 0x8000;
+        private const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
+        private const int DBT_DEVNODES_CHANGED = 0x0007;
+
         public event EventHandler BarraTareasCreada;
+        public event EventHandler DispositivoCambiado;
 
         public LectorListenerForm()
         {
@@ -49,6 +55,13 @@ namespace DevsFingerPrint.Presentation
             if (Infrastructure.Services.CicloVidaAgente.EsMensajeBarraTareas(m.Msg, mensajeBarraTareas))
             {
                 BarraTareasCreada?.Invoke(this, EventArgs.Empty);
+            }
+            else if (m.Msg == WM_DEVICECHANGE &&
+                (m.WParam.ToInt32() == DBT_DEVICEARRIVAL ||
+                 m.WParam.ToInt32() == DBT_DEVICEREMOVECOMPLETE ||
+                 m.WParam.ToInt32() == DBT_DEVNODES_CHANGED))
+            {
+                DispositivoCambiado?.Invoke(this, EventArgs.Empty);
             }
 
             base.WndProc(ref m);
