@@ -397,7 +397,27 @@ namespace DevsFingerPrint.Presentation
         private void OnHuellaNoReconocida()
         {
             System.Diagnostics.Debug.WriteLine("[LOG Biometric FAIL] Huella no reconocida.");
+            System.Media.SystemSounds.Hand.Play();
+            EmitirMensajeVoz("Huella no reconocida");
             MostrarNotificacion("Acceso Denegado", "Huella no reconocida.", ToolTipIcon.Warning);
+        }
+
+        private static void EmitirMensajeVoz(string mensaje)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    using (var synth = new System.Speech.Synthesis.SpeechSynthesizer())
+                    {
+                        synth.Speak(mensaje);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Voz] Error al reproducir mensaje: " + ex.Message);
+                }
+            });
         }
 
         private void OnEstadoCambiado(string mensaje)

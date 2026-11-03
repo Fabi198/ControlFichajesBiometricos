@@ -215,7 +215,9 @@ namespace DevsFingerPrint.Infrastructure.Services
 
             if (identificacion.ResultCode != Constants.ResultCode.DP_SUCCESS)
             {
-                throw new InvalidOperationException("DigitalPersona no pudo identificar la huella: " + identificacion.ResultCode);
+                PublicarEstado("DigitalPersona no pudo identificar la huella: " + identificacion.ResultCode);
+                PublicarNoReconocida();
+                return null;
             }
 
             if (identificacion.Indexes == null || identificacion.Indexes.Length == 0)
@@ -282,7 +284,11 @@ namespace DevsFingerPrint.Infrastructure.Services
                     return false;
                 }
 
-                Constants.ResultCode apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                Constants.ResultCode apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_EXCLUSIVE);
+                if (apertura != Constants.ResultCode.DP_SUCCESS)
+                {
+                    apertura = reader.Open(Constants.CapturePriority.DP_PRIORITY_COOPERATIVE);
+                }
                 if (apertura != Constants.ResultCode.DP_SUCCESS)
                 {
                     PublicarEstado("No se pudo abrir el lector DigitalPersona: " + apertura);
@@ -434,6 +440,11 @@ namespace DevsFingerPrint.Infrastructure.Services
                 Constants.Formats.Fmd.ANSI);
             if (extraccion.ResultCode != Constants.ResultCode.DP_SUCCESS || extraccion.Data == null)
             {
+                if (!enModoEnrolamiento)
+                {
+                    PublicarNoReconocida();
+                }
+
                 if (extraccion.ResultCode != Constants.ResultCode.DP_TOO_SMALL_AREA)
                 {
                     PublicarEstado("No se pudieron extraer características de la huella: " + extraccion.ResultCode);
