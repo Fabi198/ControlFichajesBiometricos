@@ -48,6 +48,7 @@ namespace DevsFingerPrint.Tests
             Assert.Null(trayType.GetMethod("ConstruirMenuEmpleadosSimulacion", BindingFlags.Instance | BindingFlags.NonPublic));
             Assert.Null(trayType.GetMethod("SimularLecturaDedo", BindingFlags.Instance | BindingFlags.NonPublic));
             Assert.NotNull(physicalServiceType.GetMethod("IniciarLectura"));
+            Assert.NotNull(physicalServiceType.GetMethod("ReintentarConexion"));
             Assert.NotNull(physicalServiceType.GetMethod("IdentificarEmpleado"));
         }
 #endif

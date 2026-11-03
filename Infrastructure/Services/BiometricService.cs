@@ -51,6 +51,11 @@ namespace DevsFingerPrint.Infrastructure.Services
             return true;
         }
 
+        public bool ReintentarConexion()
+        {
+            return IniciarLectura();
+        }
+
         public void DetenerLectura()
         {
             Debug.WriteLine("[LOG MockBiometric] Lector simulado detenido.");
