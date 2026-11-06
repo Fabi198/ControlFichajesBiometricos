@@ -35,6 +35,12 @@ La suite cubre, entre otros aspectos:
 
 Las pruebas no certifican el funcionamiento físico del lector, el runtime del proveedor, la aceptación de enrolamientos en el servidor real ni el despliegue. Esas validaciones requieren un entorno de aceptación autorizado.
 
+## Aceptación física y de integración
+
+Antes de probar Release con el lector U.are.U 4500, confirmar con el responsable del entorno que la API de aceptación está disponible en `http://localhost:5052`, que el túnel de base de datos local requerido está abierto y que las credenciales pertenecen a un agente y empleados de prueba dedicados. No ejecutar pruebas de escritura con empleados operativos.
+
+Esta dirección y esos prerrequisitos proceden de una guía previa del proyecto; verificar que sigan vigentes y autorizados antes de utilizarlos. La prueba física debe cubrir captura, identificación, enrolamiento, reconexión del lector y recuperación de fichadas pendientes sin borrar los datos locales de la terminal.
+
 ## Flujo recomendado de cambio
 
 1. Leer las guías de contexto del repositorio antes de modificar comportamiento.

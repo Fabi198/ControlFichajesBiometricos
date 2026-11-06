@@ -53,6 +53,8 @@ $env:UAREU_PACKAGE_DIR = 'C:\ruta\autorizada\U.are.U_Windows'
 
 La versión y licencia del paquete de DigitalPersona deben verificarse con el proveedor antes de distribuir. El SDK de desarrollo no se debe redistribuir como parte de este instalador.
 
+Una versión anterior del README registraba una compilación con Inno Setup 7.1.0 y un paquete `U.are.U_Windows_3.2.0.89`, cuyo runtime se esperaba en `RTE\x64`. Estos datos son una referencia histórica, no una garantía de que sean el paquete autorizado o compatible para una nueva distribución: confirmar la versión y la EULA del paquete disponible con el proveedor.
+
 > [!warning] Discrepancia de versión
 > `Properties/AssemblyInfo.cs` declara `1.0.6.0`, mientras que `innoDevs.iss` declara `AppVersion=1.0.7` y nombra el instalador como `v1.0.7`. Alinear y verificar esos valores antes de generar o publicar una instalación.
 
